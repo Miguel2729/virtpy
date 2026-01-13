@@ -1476,6 +1476,7 @@ Retorna o caminho completo se encontrar.
         self.library.copy("pthread")
         self.library.copy("dl")
         self.library.copy("rt")
+        self.library.copy("util")
         
         for cmd in self.setup_commands:
             result = self.process.run(cmd, shell=True, capture_output=True)
@@ -1827,4 +1828,4 @@ Retorna o caminho completo se encontrar.
         self.ready = False
         time.sleep(1)
 
-__all__ = ["VirtualEnviron"] 
+__all__ = ["VirtualEnviron"]
