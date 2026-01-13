@@ -1477,6 +1477,12 @@ Retorna o caminho completo se encontrar.
         self.library.copy("dl")
         self.library.copy("rt")
         self.library.copy("util")
+        self.library.copy("z")
+        self.library.copy("ssl")
+        self.library.copy("sqlite3")
+        self.library.copy("crypto")
+        self.library.copy("uuid")
+        self.library.copy("readline")
         
         for cmd in self.setup_commands:
             result = self.process.run(cmd, shell=True, capture_output=True)
