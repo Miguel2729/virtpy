@@ -688,7 +688,7 @@ class VirtualEnviron:
         def _setup_fs(self):
             """Initialize virtual filesystem structure"""
             os.makedirs(self._base_path, exist_ok=True)
-            dirs = ["bin"] 
+            dirs = ["bin", "lib"] 
             for d in dirs:
                 os.makedirs(os.path.join(self._base_path, d), exist_ok=True)
             
@@ -900,6 +900,7 @@ class VirtualEnviron:
                 'SHELL': '/bin/bash',
                 'PWD': '/',
                 'VIRTPY_ENV': self._env.name,
+                'LD_LIBRARY_PATH': os.path.join(self._env._base_path, "lib"),
                 'VIRTPY_BASE': self._env._base_path,
             })
             
@@ -1358,7 +1359,22 @@ Retorna o caminho completo se encontrar.
             a = __import__(lib)
             b = inspect.getsource(a)
             return self.create_module(lib, b)
-    
+    class Library:
+        def __init__(self, env):
+            self._env = env
+        def set_path(self, path):
+            self._env.environ.set("LD_LIBRARY_PATH", os.path.join(self._env._base_path, path))
+        def get_path(self):
+            return self._env.environ.get("LD_LIBRARY_PATH", "?")
+        def create_lib(self, name, source):
+            path = self._env.environ.get("LD_LIBRARY_PATH")
+            comando = f"gcc -shared -fPIC -o / {path}/{name}.so -x c - << 'EOF'\n{source}\nEOF"
+            return os.system(comando) == 0
+        def copy(self, lib):
+            for path in os.environ.get("LD_LIBRARY_PATH", "/lib").split(":"):
+                full = f"{path}/lib{lib}.so"
+                if os.path.exists(full): return shutil.copy(full, os.path.join(self._env._base_path, self._env.environ.get("LD_LIBRARY_PATH")))
+            
     # Main VirtualEnviron class implementation
     def __init__(self, nome: str, vars: Optional[Dict[str, str]] = None, start: Optional[List[str]] = None,
                  setup: Optional[List[str]] = None, ip: Optional[str] = None):
@@ -1392,6 +1408,7 @@ Retorna o caminho completo se encontrar.
         self.environ = self.Environ(self)
         self.process = self.Process(self)
         self.package = self.Package(self)
+        self.library = self.Library(self)
         self.internal_api = VirtPyInternalAPI(self)  # Adicionar esta linha
         # Run setup commands
         if self.setup_commands and not self.ready:
@@ -1452,6 +1469,14 @@ Retorna o caminho completo se encontrar.
     
     def setup(self):
         """Run setup commands"""
+        
+        # setup essential libraries
+        self.library.copy("c")
+        self.library.copy("m")
+        self.library.copy("pthread")
+        self.library.copy("dl")
+        self.library.copy("rt")
+        
         for cmd in self.setup_commands:
             result = self.process.run(cmd, shell=True, capture_output=True)
             if result.returncode != 0:
@@ -1802,5 +1827,4 @@ Retorna o caminho completo se encontrar.
         self.ready = False
         time.sleep(1)
 
-__all__ = ["VirtualEnviron"]
-
+__all__ = ["VirtualEnviron"] 
