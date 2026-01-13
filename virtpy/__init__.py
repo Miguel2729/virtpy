@@ -1354,7 +1354,7 @@ Retorna o caminho completo se encontrar.
             if module_name in self._modules:
                 del self._modules[module_name]
         
-        def include(self, lib):
+        def copy(self, lib):
             a = __import__(lib)
             b = inspect.getsource(a)
             return self.create_module(lib, b)
@@ -1377,6 +1377,7 @@ Retorna o caminho completo se encontrar.
         self.vars = vars or {}
         self.start_commands = start or []
         self.setup_commands = setup or []
+        self.ready = False
         
         # Internal state
         self._base_path = os.path.join(tempfile.gettempdir(), f'virtpy_{self.name}_{uuid.uuid4().hex[:8]}')
@@ -1393,7 +1394,7 @@ Retorna o caminho completo se encontrar.
         self.package = self.Package(self)
         self.internal_api = VirtPyInternalAPI(self)  # Adicionar esta linha
         # Run setup commands
-        if self.setup_commands:
+        if self.setup_commands and not self.ready:
             self.setup()
 
     def start(self):
@@ -1421,7 +1422,7 @@ Retorna o caminho completo se encontrar.
             # Register cleanup
             atexit.register(self.shutdown)
     
-    def shutdown(self):
+    def shutdown(self, root_backup=True):
         """Shutdown the virtual environment"""
         with self._lock:
             if not self._running:
@@ -1437,7 +1438,7 @@ Retorna o caminho completo se encontrar.
             
             # Remove temporary directory
             try:
-                shutil.rmtree(self._base_path, ignore_errors=True)
+                if not root_backup: shutil.rmtree(self._base_path, ignore_errors=True)
             except:
                 pass
             
@@ -1456,6 +1457,7 @@ Retorna o caminho completo se encontrar.
             if result.returncode != 0:
                 print(f"Setup command failed: {cmd}")
                 print(f"Error: {result.stderr.decode() if result.stderr else 'Unknown error'}")
+        self.ready = True
     
     def getpid(self) -> Optional[int]:
         """Get the main process ID if environment runs as separate process"""
@@ -1784,5 +1786,21 @@ Retorna o caminho completo se encontrar.
                 self.shutdown()
         except:
             pass
+    def reinstall(self):
+        self.shutdown()
+        self.environ.clear()
+        lista = [p.split("==")[0] for p in self.package.list_installed()]
+        for p in lista:
+            self.package.uninstall(p)
+        for f in self.fs.listdir("/"):
+            self.fs.remove(f"/{f}")
+        # recria lib e bin
+        self.fs.mkdir("/bin")
+        self.fs.mkdir('/lib')
+        self._install_python()
+        
+        self.ready = False
+        time.sleep(1)
 
 __all__ = ["VirtualEnviron"]
+
