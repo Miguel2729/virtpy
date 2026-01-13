@@ -1107,7 +1107,7 @@ Retorna o caminho completo se encontrar.
 
 
 
-        def _create_preexec_fn(self, env_v):
+        def _create_preexec_fn(self, env_vars):
             """Create pre-execution function for process isolation"""
             def preexec():
                 # Drop privileges
