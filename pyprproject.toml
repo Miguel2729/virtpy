@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "virtpy"
+version = "1.0.0"
+description = "Complete Virtual Environments for Python with process, filesystem, and network isolation"
+readme = "README.md"
+authors = [
+    {name = "Miguel", email = ""},
+]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
+keywords = ["virtualization", "sandbox", "container", "isolation", "environment"]
+dependencies = []
+
+[project.optional-dependencies]
+full = ["psutil", "pyroute2"]
+network = ["pyroute2"]
+monitoring = ["psutil"]
+
+[project.scripts]
+virtpy = "virtpy:main"
+
+[project.urls]
+Homepage = "https://github.com/Miguel2729/virtpy"
+
+[tool.setuptools]
+packages = ["virtpy"]
