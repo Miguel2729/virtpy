@@ -1,0 +1,9 @@
+README.md
+pyproject.toml
+virtpy/__init__.py
+virtpy.egg-info/PKG-INFO
+virtpy.egg-info/SOURCES.txt
+virtpy.egg-info/dependency_links.txt
+virtpy.egg-info/entry_points.txt
+virtpy.egg-info/requires.txt
+virtpy.egg-info/top_level.txt

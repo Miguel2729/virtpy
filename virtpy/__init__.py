@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments
+Core implementation of VirtPy - Complete Virtual Environments, v2.1.0
 """
 
 import os
@@ -25,7 +25,10 @@ from typing import Dict, List, Optional, Any, Union, Callable, Tuple
 import uuid
 import atexit
 import textwrap
+import glob
 
+if os.name != "posix":
+    print("[warning] Operating system other than Linux. May not function as expected.")
 
 class SecurityError(Exception):
 	pass
@@ -858,8 +861,8 @@ class VirtualEnviron:
                 fd = os.open(full_path, os.O_RDONLY | os.O_NOFOLLOW)
                 os.close(fd)
             except OSError as e:
-                if e.errno == errno.ELOOP:  # É symlink!
-                    raise SecurityError(f"Symlink not allowed: {path}")
+                if e.errno == errno.ELOOP and os.realpath(full_path).split("/")[-1] != self._env._base_path.split("/")[-1]:  # É perigoso
+                    raise SecurityError(f"escape Symlink not allowed: {path}")
         
     
             # Ensure we don't escape the base directory
@@ -867,6 +870,8 @@ class VirtualEnviron:
                 raise SecurityError(f"Attempted directory traversal: {path}")
     
             return full_path
+            
+            # não tem acesso aos diretorios do sistema real e nao tem chance de symlink perigoso
         
         def get_size(self, path: str) -> int:
             """Get file/directory size in bytes"""
@@ -897,10 +902,10 @@ class VirtualEnviron:
                 'PATH': '/bin',
                 'USER': self._env.name,
                 'LOGNAME': self._env.name,
-                'SHELL': '/bin/bash',
+                'SHELL': 'null',
                 'PWD': '/',
                 'VIRTPY_ENV': self._env.name,
-                'LD_LIBRARY_PATH': os.path.join(self._env._base_path, "lib"),
+                'LD_LIBRARY_PATH': os.path.join(self._env._base_path, "lib"), # importante, processos dentro do ambiente virtual não tem acesso as bibliotecas do host, apenas as bibliotecas do ambiente, nao importe o que voce faca
                 'VIRTPY_BASE': self._env._base_path,
             })
             
@@ -1130,19 +1135,19 @@ Retorna o caminho completo se encontrar.
                              del os.environ[key]
             return preexec
         
-        def kill(self, pid: int, signal: int = signal.SIGTERM):
+        def kill(self, pid: int, Signal: int = signal.SIGTERM):
             """Kill a process"""
             with self._lock:
                 if pid in self._processes:
                     proc = self._processes[pid]
                     try:
-                        proc.send_signal(signal)
+                        proc.send_signal(Signal)
                     except:
                         pass
                 else:
                     # Try to kill system process (if we have permission)
                     try:
-                        os.kill(pid, signal)
+                        os.kill(pid, getattr(signal, Signal))
                     except ProcessLookupError:
                         raise ValueError(f"Process {pid} not found")
         
@@ -1372,8 +1377,12 @@ Retorna o caminho completo se encontrar.
             return os.system(comando) == 0
         def copy(self, lib):
             for path in os.environ.get("LD_LIBRARY_PATH", "/lib").split(":"):
-                full = f"{path}/lib{lib}.so"
-                if os.path.exists(full): return shutil.copy(full, os.path.join(self._env._base_path, self._env.environ.get("LD_LIBRARY_PATH")))
+                full = glob.glob(f"{path}/lib{lib}.so*")
+                if full: return shutil.copy(full[0], os.path.join(
+                self._env._base_path, 
+                self._env.environ.get("LD_LIBRARY_PATH"),
+                os.path.basename(full[0])
+            ))
             
     # Main VirtualEnviron class implementation
     def __init__(self, nome: str, vars: Optional[Dict[str, str]] = None, start: Optional[List[str]] = None,
@@ -1411,7 +1420,7 @@ Retorna o caminho completo se encontrar.
         self.library = self.Library(self)
         self.internal_api = VirtPyInternalAPI(self)  # Adicionar esta linha
         # Run setup commands
-        if self.setup_commands and not self.ready:
+        if not self.ready:
             self.setup()
 
     def start(self):

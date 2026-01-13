@@ -1,0 +1,10 @@
+
+[full]
+psutil
+pyroute2
+
+[monitoring]
+psutil
+
+[network]
+pyroute2
