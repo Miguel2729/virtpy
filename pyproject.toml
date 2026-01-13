@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "Complete Virtual Environments for Python with process, filesystem, and network isolation"
 readme = "README.md"
 authors = [
-    {name = "Miguel", email = ""},
+    {name = "Miguel"},
 ]
 license = {text = "MIT"}
 classifiers = [
