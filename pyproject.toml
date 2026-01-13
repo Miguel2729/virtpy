@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "virtpy"
+version = "1.0.0"
+description = "Complete Virtual Environments for Python"
+readme = "README.md"
+authors = [{name = "Seu Nome"}]
+
+[project.optional-dependencies]
+full = ["psutil", "pyroute2"]
+
+[tool.setuptools]
+packages = ["virtpy"]
