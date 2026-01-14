@@ -1120,7 +1120,13 @@ Retorna o caminho completo se encontrar.
                                     "--noroot",
                                     "--private-pid",
                                     "--private-ipc",
-                                    *command
+                                    "--private-uts",
+                                    "--private",
+                                    "--private-dev",
+                                    "--private-proc",
+                                    "--private-sys",
+                                    "--ignore=env",                                  
+                                     *command
                                 ]
                             else:
                                 # Sem IP específico, usa configuração básica
@@ -1131,14 +1137,20 @@ Retorna o caminho completo se encontrar.
                                     "--noroot",
                                     "--private-pid",
                                     "--private-ipc",
+                                    "--private-uts",
+                                    "--private",
+                                    "--private-dev",
+                                    "--private-proc",
+                                    "--private-sys",
+                                    "--ignore=env",
                                     *command
                                 ]
                         else:
                             # Para command como string
                             if self._env.ip:
-                                firejail_cmd = f"firejail --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --noroot --private-pid --private-ipc {command}"
+                                firejail_cmd = f"firejail --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --noroot --private-pid --private-ipc --private-uts --private --private-proc --private-dev --private-sys --ignore=env {command}"
                             else:
-                                firejail_cmd = f"firejail --chroot={real_cwd} --net=none --noroot --private-pid --private-ipc{command}"
+                                firejail_cmd = f"firejail --chroot={real_cwd} --net=none --noroot --private-pid --private-ipc --private-uts --private --private-proc --private-dev --private-sys --ignore=env {command}"
 
                         com = firejail_cmd
                     else:
@@ -1900,6 +1912,4 @@ Retorna o caminho completo se encontrar.
         self.ready = False
         time.sleep(1)
 
-
 __all__ = ['VirtualEnviron']
-
