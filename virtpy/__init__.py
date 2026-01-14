@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.2.2
+Core implementation of VirtPy - Complete Virtual Environments, v2.2.3
 """
 
 import shutil, subprocess
@@ -18,16 +18,16 @@ if not shutil.which("firejail"):
         ['sudo', 'yum', 'install', '-y', 'firejail'],   # RHEL/CentOS
         ['apk', 'add', 'firejail'], # alpine
     ]:
-        if shutil.which(cmd[0].replace('sudo', '')):
+        if shutil.which(cmd[1] if cmd[0] == "sudo" else cmd[0]):
             try:
                 subprocess.run(cmd, check=False)
                 if shutil.which("firejail"):
                     print("instalado com sucesso")
                     inst = True
                     break
-            except:
+            except Exception as e:
                 pass
-                print("erro")
+                print(f"erro: {e}")
 
 if not inst: print("não foi possivel instalar firejail")
 
@@ -1117,6 +1117,9 @@ Retorna o caminho completo se encontrar.
                                     f"--defaultgw={self._env.ip.rsplit('.', 1)[0]}.1",
                                     "--dns=8.8.8.8",
                                     "--dns=8.8.4.4",
+                                    "--noroot",
+                                    "--private-pid",
+                                    "--private-ipc",
                                     *command
                                 ]
                             else:
@@ -1125,21 +1128,24 @@ Retorna o caminho completo se encontrar.
                                     "firejail",
                                     "--chroot=" + real_cwd,
                                     "--net=none",  # Ou --net=none para sem rede
+                                    "--noroot",
+                                    "--private-pid",
+                                    "--private-ipc",
                                     *command
                                 ]
                         else:
                             # Para command como string
                             if self._env.ip:
-                                firejail_cmd = f"firejail --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 {command}"
+                                firejail_cmd = f"firejail --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --noroot --private-pid --private-ipc {command}"
                             else:
-                                firejail_cmd = f"firejail --chroot={real_cwd} --net=none {command}"
+                                firejail_cmd = f"firejail --chroot={real_cwd} --net=none --noroot --private-pid --private-ipc{command}"
 
-                        com = firejail_cmd if shell else firejail_cmd
+                        com = firejail_cmd
                     else:
                         com = command
 
 
-
+                    tem_cwd = {"cwd": real_cwd} if not shutil.which("firejail") else {}
 
                     # Fallback without chroot
                     proc = subprocess.Popen(                        com,
@@ -1148,6 +1154,7 @@ Retorna o caminho completo se encontrar.
                         stdout=stdout,
                         stderr=stderr,
                         shell=shell
+                        **tem_cwd
                     )
 
                 with self._lock:
@@ -1895,3 +1902,4 @@ Retorna o caminho completo se encontrar.
 
 
 __all__ = ['VirtualEnviron']
+
