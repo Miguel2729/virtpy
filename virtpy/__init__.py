@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.2.3
+Core implementation of VirtPy - Complete Virtual Environments, v2.2.4
 """
 
 import os
@@ -1096,6 +1096,8 @@ Retorna o caminho completo se encontrar.
                                     "--private-proc",
                                     "--private-sys",
                                     "--ignore=env",                                  
+                                    "--seccomp",
+                                    "--caps.drop=all",
                                      *command
                                 ]
                             else:
@@ -1113,14 +1115,16 @@ Retorna o caminho completo se encontrar.
                                     "--private-proc",
                                     "--private-sys",
                                     "--ignore=env",
+                                    "--seccomp",
+                                    "--caps.drop=all",
                                     *command
                                 ]
                         else:
                             # Para command como string
                             if self._env.ip:
-                                firejail_cmd = f"firejail --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --noroot --private-pid --private-ipc --private-uts --private --private-proc --private-dev --private-sys --ignore=env {command}"
+                                firejail_cmd = f"firejail --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --noroot --private-pid --private-ipc --private-uts --private --private-proc --private-dev --private-sys --ignore=env --seccomp --caps.drop=all {command}"
                             else:
-                                firejail_cmd = f"firejail --chroot={real_cwd} --net=none --noroot --private-pid --private-ipc --private-uts --private --private-proc --private-dev --private-sys --ignore=env {command}"
+                                firejail_cmd = f"firejail --chroot={real_cwd} --net=none --noroot --private-pid --private-ipc --private-uts --private --private-proc --private-dev --private-sys --ignore=env --seccomp --caps.drop=all {command}"
 
                         com = firejail_cmd
                     else:
@@ -1128,7 +1132,7 @@ Retorna o caminho completo se encontrar.
 
 
                     kwargs = {"cwd": real_cwd} if not shutil.which("firejail") else {}
-                    tem_cwd.update({"env":process_env,
+                    kwargs.update({"env":process_env,
                         "stdin":stdin,
                         "stdout":stdout,
                         "stderr":stderr,
