@@ -1,7 +1,7 @@
 import shutil, subprocess
 
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.2.0
+Core implementation of VirtPy - Complete Virtual Environments, v2.2.1
 """
 
 # Instala firejail se não existir
@@ -884,7 +884,7 @@ class VirtualEnviron:
                 fd = os.open(full_path, os.O_RDONLY | os.O_NOFOLLOW)
                 os.close(fd)
             except OSError as e:
-                if e.errno == errno.ELOOP and os.realpath(full_path).split("/")[-1] != self._env._base_path.split("/")[-1]:  # É perigoso
+                if e.errno == errno.ELOOP and os.realpath(full_path).split("/")[-1] != self._env._base_path.split("/")[-1] and "python" not in os.realpath(full_path):  # É perigoso
                     raise SecurityError(f"escape Symlink not allowed: {path}")
         
     
