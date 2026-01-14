@@ -1,3 +1,5 @@
+import shutil, subprocess
+
 """
 Core implementation of VirtPy - Complete Virtual Environments, v2.2.0
 """
