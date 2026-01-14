@@ -1,6 +1,27 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.1.0
+Core implementation of VirtPy - Complete Virtual Environments, v2.2.0
 """
+
+# Instala firejail se não existir
+if not shutil.which("firejail"):
+    for cmd in [
+        ['pkg', 'install', '-y', 'firejail'],           # Termux
+        ['sudo', 'pacman', '-Sy', '--noconfirm', 'firejail'],  # Arch
+        ['sudo', 'apt', 'update', '-y'],
+        ['sudo', 'apt', 'install', '-y', 'firejail'],   # Debian/Ubuntu
+        ['sudo', 'dnf', 'install', '-y', 'firejail'],   # Fedora
+        ['sudo', 'yum', 'install', '-y', 'firejail'],   # RHEL/CentOS
+        ['apk', 'add', 'firejail'], # alpine
+    ]:
+        if shutil.which(cmd[0].replace('sudo', '')):
+            try:
+                subprocess.run(cmd, check=False)
+                if shutil.which("firejail"):
+                    break
+            except:
+                pass
+
+
 
 import os
 import sys
@@ -1090,9 +1111,15 @@ Retorna o caminho completo se encontrar.
                         os.chroot('.')
                         os.close(original_root)
                 else:
+                    if isinstance(command, str):
+                        if any(b in command for b in [";", "&&", "||", "&", "$(", "\n", "`", "|", "${"]):
+                            raise SecurityError("illegal char")
+                    elif isinstance(command, list):
+                        for item in command:
+                            if any(b in item for b in [";", "&&", "||", "&", "$(", "\n", "`", "|", "${"]): raise SecurityError("illegal char")
+                    com = command if not shutil.which("firejail") else (f"firejail {real_cwd} {' '.join(command)}" if shell else ["firejail", real_cwd, *command])
                     # Fallback without chroot
-                    proc = subprocess.Popen(                        command,  # Usa command que pode ter sido modificado
-                        cwd=real_cwd,
+                    proc = subprocess.Popen(                        com,
                         env=process_env,
                         stdin=stdin,
                         stdout=stdout,
@@ -1843,4 +1870,5 @@ Retorna o caminho completo se encontrar.
         self.ready = False
         time.sleep(1)
 
-__all__ = ["VirtualEnviron"]
+
+__all__ = ['VirtualEnviron']
