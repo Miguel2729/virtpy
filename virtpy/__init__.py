@@ -1,11 +1,14 @@
+"""
+Core implementation of VirtPy - Complete Virtual Environments, v2.2.2
+"""
+
 import shutil, subprocess
 
-"""
-Core implementation of VirtPy - Complete Virtual Environments, v2.2.1
-"""
 
+inst = False
 # Instala firejail se não existir
 if not shutil.which("firejail"):
+    print("instalando firejail")
     for cmd in [
         ['pkg', 'install', '-y', 'firejail'],           # Termux
         ['sudo', 'pacman', '-Sy', '--noconfirm', 'firejail'],  # Arch
@@ -19,10 +22,14 @@ if not shutil.which("firejail"):
             try:
                 subprocess.run(cmd, check=False)
                 if shutil.which("firejail"):
+                    print("instalado com sucesso")
+                    inst = True
                     break
             except:
                 pass
+                print("erro")
 
+if not inst: print("não foi possivel instalar firejail")
 
 
 import os
@@ -1088,30 +1095,8 @@ Retorna o caminho completo se encontrar.
 
             try:
                 # Run with chroot isolation
-                if hasattr(os, 'chroot'):
-                    # Save current root
-                    original_root = os.open('/', os.O_RDONLY)
-
-                    try:
-                        # Chroot to virtual environment
-                        os.chroot(self._env._base_path)
-                        os.chdir('/')
-
-                        # Run the process
-                        proc = subprocess.Popen(
-                            command,  # Usa command que pode ter sido modificado
-                            cwd=real_cwd[len(self._env._base_path):] if real_cwd.startswith(self._env._base_path) else '/',
-                            env=process_env,                            stdin=stdin,
-                            stdout=stdout,
-                            stderr=stderr,
-                            shell=shell,
-                            preexec_fn=self._create_preexec_fn(process_env)
-                        )
-                    finally:
-                        # Restore original root
-                        os.fchdir(original_root)
-                        os.chroot('.')
-                        os.close(original_root)
+                if False:
+                    pass
                 else:
                     if isinstance(command, str):
                         if any(b in command for b in [";", "&&", "||", "&", "$(", "\n", "`", "|", "${"]):
@@ -1119,7 +1104,43 @@ Retorna o caminho completo se encontrar.
                     elif isinstance(command, list):
                         for item in command:
                             if any(b in item for b in [";", "&&", "||", "&", "$(", "\n", "`", "|", "${"]): raise SecurityError("illegal char")
-                    com = command if not shutil.which("firejail") else (f"firejail {real_cwd} {' '.join(command)}" if shell else ["firejail", real_cwd, *command])
+                    if shutil.which("firejail"):
+                        if isinstance(command, list):
+                            # Verifica se temos um IP configurado
+                            if self._env.ip:  # Usa self._env.ip (o IP passado no VirtualEnviron)
+                                # Usa network namespace com IP específico
+                                firejail_cmd = [
+                                    "firejail",
+                                    "--chroot=" + real_cwd,
+                                    "--net=namespace",
+                                    f"--ip={self._env.ip}",
+                                    f"--defaultgw={self._env.ip.rsplit('.', 1)[0]}.1",
+                                    "--dns=8.8.8.8",
+                                    "--dns=8.8.4.4",
+                                    *command
+                                ]
+                            else:
+                                # Sem IP específico, usa configuração básica
+                                firejail_cmd = [
+                                    "firejail",
+                                    "--chroot=" + real_cwd,
+                                    "--net=none",  # Ou --net=none para sem rede
+                                    *command
+                                ]
+                        else:
+                            # Para command como string
+                            if self._env.ip:
+                                firejail_cmd = f"firejail --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 {command}"
+                            else:
+                                firejail_cmd = f"firejail --chroot={real_cwd} --net=none {command}"
+
+                        com = firejail_cmd if shell else firejail_cmd
+                    else:
+                        com = command
+
+
+
+
                     # Fallback without chroot
                     proc = subprocess.Popen(                        com,
                         env=process_env,
