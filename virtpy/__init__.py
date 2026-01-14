@@ -2,36 +2,6 @@
 Core implementation of VirtPy - Complete Virtual Environments, v2.2.3
 """
 
-import shutil, subprocess
-
-
-inst = False
-# Instala firejail se não existir
-if not shutil.which("firejail"):
-    print("instalando firejail")
-    for cmd in [
-        ['pkg', 'install', '-y', 'firejail'],           # Termux
-        ['sudo', 'pacman', '-Sy', '--noconfirm', 'firejail'],  # Arch
-        ['sudo', 'apt', 'update', '-y'],
-        ['sudo', 'apt', 'install', '-y', 'firejail'],   # Debian/Ubuntu
-        ['sudo', 'dnf', 'install', '-y', 'firejail'],   # Fedora
-        ['sudo', 'yum', 'install', '-y', 'firejail'],   # RHEL/CentOS
-        ['apk', 'add', 'firejail'], # alpine
-    ]:
-        if shutil.which(cmd[1] if cmd[0] == "sudo" else cmd[0]):
-            try:
-                subprocess.run(cmd, check=False)
-                if shutil.which("firejail"):
-                    print("instalado com sucesso")
-                    inst = True
-                    break
-            except Exception as e:
-                pass
-                print(f"erro: {e}")
-
-if not inst: print("não foi possivel instalar firejail")
-
-
 import os
 import sys
 import json
@@ -1157,16 +1127,16 @@ Retorna o caminho completo se encontrar.
                         com = command
 
 
-                    tem_cwd = {"cwd": real_cwd} if not shutil.which("firejail") else {}
+                    kwargs = {"cwd": real_cwd} if not shutil.which("firejail") else {}
+                    tem_cwd.update({"env":process_env,
+                        "stdin":stdin,
+                        "stdout":stdout,
+                        "stderr":stderr,
+                        "shell":shell})
 
                     # Fallback without chroot
                     proc = subprocess.Popen(                        com,
-                        env=process_env,
-                        stdin=stdin,
-                        stdout=stdout,
-                        stderr=stderr,
-                        shell=shell
-                        **tem_cwd
+                        **kwargs
                     )
 
                 with self._lock:
