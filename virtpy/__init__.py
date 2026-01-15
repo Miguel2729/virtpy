@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.4.1
+Core implementation of VirtPy - Complete Virtual Environments, v2.4.2
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -1181,7 +1181,7 @@ Retorna o caminho completo se encontrar.
         
             # Configurações básicas equivalentes ao firejail
             proot_cmd.extend([
-                "--keep-env=ALL"
+                "--keep-env=ALL",
                 '-S', self._env._base_path,      # Chroot
                 '-w', '/',                       # Working directory (relativo ao chroot)
                 '-r', self._env._base_path,      # Root directory
@@ -2161,6 +2161,8 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
+
+
 
 
 
