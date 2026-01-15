@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.2.7
+Core implementation of VirtPy - Complete Virtual Environments, v2.3.0
 """
 
 import os
@@ -720,6 +720,66 @@ class VirtualEnviron:
             self._env = environ_instance
             self._base_path = environ_instance._base_path
             self._setup_fs()
+        
+        def import_from_host(self, host_path: str, virtual_path: str = None):
+            """
+            Import file/directory from REAL HOST into virtual environment
+        
+            Args:
+                host_path: Path on real host filesystem
+                virtual_path: Destination inside virtual environment (default: same name in /)
+             There is no security because if the user wants to expose their environment to sabotage, that's their problem.
+               """
+            # Validate host path exists
+            if not os.path.exists(host_path):
+                raise FileNotFoundError(f"Host path not found: {host_path}")
+        
+            # Determine destination
+            if virtual_path is None:
+                # Use same name in root of virtual env
+                filename = os.path.basename(host_path)
+                virtual_path = f"/{filename}"
+        
+            # Convert to full virtual path
+            dest_path = self._to_virtual_path(virtual_path)
+        
+            # Create parent directory if needed
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        
+            # Copy file or directory
+            if os.path.isdir(host_path):
+                shutil.copytree(host_path, dest_path, dirs_exist_ok=True)
+            else:
+                shutil.copy2(host_path, dest_path)
+        
+            return virtual_path
+    
+        def export_to_host(self, virtual_path: str, host_path: str = None):
+            """
+            Export file/directory from virtual environment to host
+        
+            Args:
+            virtual_path: Path inside virtual environment
+            host_path: Destination on host (default: current directory with same name)
+            """
+            # Get source path in virtual env
+            source_path = self._to_virtual_path(virtual_path)
+        
+            if not os.path.exists(source_path):
+                raise FileNotFoundError(f"Virtual path not found: {virtual_path}")
+        
+            # Determine destination
+            if host_path is None:
+                filename = os.path.basename(virtual_path)
+                host_path = os.path.join(os.getcwd(), filename)
+        
+            # Copy
+            if os.path.isdir(source_path):
+                shutil.copytree(source_path, host_path, dirs_exist_ok=True)
+            else:
+                shutil.copy2(source_path, host_path)
+        
+            return host_path
         
         def _setup_fs(self):
             """Initialize virtual filesystem structure"""
