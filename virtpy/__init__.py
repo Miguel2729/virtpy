@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.3.0
+Core implementation of VirtPy - Complete Virtual Environments, v2.3.1
 """
 
 import os
@@ -1540,7 +1540,11 @@ Retorna o caminho completo se encontrar.
         def __init__(self, env):
             self._env = env
         def set_path(self, path):
-            self._env.environ.set("LD_LIBRARY_PATH", os.path.join(self._env._base_path, path))
+            self._env.environ.set("LD_LIBRARY_PATH", path)
+        def set_preload(self, path):
+            self._env.environ.set("LD_PRELOAD", path)
+        def unset_preload(self):
+            self._env.environ.unset("LD_PRELOAD")
         def get_path(self):
             return self._env.environ.get("LD_LIBRARY_PATH", "?")
         def create_lib(self, name, source):
@@ -2014,5 +2018,7 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
+
+
 
 __all__ = ["VirtualEnviron"]

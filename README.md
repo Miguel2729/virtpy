@@ -15,7 +15,7 @@ VirtPy is a powerful Python library for creating isolated virtual environments w
 
 ```bash
 # Install
-pip install git+https://github.com/seuusuario/virtpy.git
+pip install git+https://github.com/Miguel2729/virtpy.git
 
 # Install with optional dependencies
 pip install "virtpy[full]"
@@ -92,7 +92,23 @@ pip install -e .
 ```
 
 License
-
+```
 MIT
 
 ```
+
+## Why No Windows Support (And Never Will Be)
+
+### Technical Reality:
+1. **Windows lacks process namespaces** → No real process isolation
+2. **No proper chroot equivalent** → Filesystem isolation is theater  
+3. **Security model is binary** → Either full access or no access
+4. **No lightweight copy-on-write** → Containers become VM-heavy
+
+### What Others Do:
+- Docker Desktop: Runs a Linux VM (hidden)
+- WSL2: Is literally Linux in a VM
+- Python venv: Just PATH manipulation (no isolation)
+
+### Our Choice:
+We refuse to pretend. Either real isolation (Linux) or nothing.
