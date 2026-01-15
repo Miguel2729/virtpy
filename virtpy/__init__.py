@@ -1121,51 +1121,7 @@ Retorna o caminho completo se encontrar.
     
             return None
         
-        def run_with_proot(self, command, cwd=None, env=None, input_data=None,
-                           capture_output=False, shell=False):
-            # Parse command (mantém segurança)
-            if isinstance(command, str) and not shell:
-                cmd_parts = command.split()
-            elif isinstance(command, list):
-                cmd_parts = command.copy()
-            else:
-                cmd_parts = [command]
-            
-            # Validação de segurança mantida
-            cmd_str = ' '.join(cmd_parts)
-            if any(b in cmd_str for b in [";", "&&", "||", "&", "$(", "`", "|", "${"]):
-                raise SecurityError("illegal char")
-            
-            # Ambiente combinado
-            proc_env = self._env.environ.to_dict()
-            if env: proc_env.update(env)
-            
-            # Cria lista de env para passar como -e VAR=valor
-            proot_cmd = ["proot", "-r", self._env._base_path, "-w", "/"]
-            
-            # Passa TODAS as variáveis com -e
-            for k, v in proc_env.items():
-                proot_cmd.extend(["-e", f"{k}={v}"])
-            
-            # Adiciona comando final
-            proot_cmd.extend(cmd_parts)
-            
-            # Executa
-            proc = subprocess.Popen(
-                proot_cmd,
-                cwd=self._env.fs._to_virtual_path(cwd) if cwd else self._env._base_path,
-                stdin=subprocess.PIPE if input_data else None,
-                stdout=subprocess.PIPE if capture_output else None,
-                stderr=subprocess.PIPE if capture_output else subprocess.STDOUT,
-                shell=False
-            )
-            
-            with self._lock:
-                pid = self._next_pid
-                self._next_pid += 1
-                self._processes[pid] = proc
-            
-            return proc
+
 
         def run(self, command: Union[str, List[str]],
                 cwd: Optional[str] = None,
@@ -1333,8 +1289,7 @@ Retorna o caminho completo se encontrar.
                             com = firejail_cmd
                             shell = True  # Mantém shell=True para execução
                 else:
-                    if shutil.which("proot"):
-                        return self.run_with_proot(command, cwd, env, input_data, capture_output, shell)
+                    com = command
 
                 kwargs = {"cwd": real_cwd} if not shutil.which("firejail") else {}
                 kwargs.update({
@@ -2096,8 +2051,6 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
-
-
 
 
 
