@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.2.4
+Core implementation of VirtPy - Complete Virtual Environments, v2.2.5
 """
 
 import os
@@ -29,6 +29,39 @@ import glob
 
 if os.name != "posix":
     print("[warning] Operating system other than Linux. May not function as expected.")
+
+
+print("Checking firejail...")
+
+# Check installation
+if subprocess.run(["which", "firejail"]).returncode == 0:
+    print("WARNING: Already installed")
+    subprocess.run(["firejail", "--version"])
+    exit()
+
+# Try to install
+pms = ["apt", "apt-get", "dnf", "yum", "pacman", "zypper", "apk"]
+
+for pm in pms:
+    if subprocess.run(["which", pm]).returncode == 0:
+        print(f"WARNING: Installing with {pm}...")
+        
+        if pm in ["apt", "apt-get"]:
+            cmd = f"sudo {pm} update && sudo {pm} install -y firejail"
+        else:
+            cmd = f"sudo {pm} install -y firejail"
+        
+        result = subprocess.run(cmd, shell=True)
+        
+        if result.returncode == 0:
+            print("SUCCESS: Installed!")
+            break
+        else:
+            print("ERROR: Failed")
+
+# Check result
+if subprocess.run(["which", "firejail"]).returncode != 0:
+    print("WARNING: Security vulnerability - no sandbox installed")
 
 class SecurityError(Exception):
 	pass
@@ -899,11 +932,11 @@ class VirtualEnviron:
             """Load initial environment variables"""
             # Basic environment variables
             self._vars.update({
-                'PATH': '/bin',
+                'PATH': os.path.join(self._env._base_path, 'bin'),
                 'USER': self._env.name,
                 'LOGNAME': self._env.name,
                 'SHELL': 'null',
-                'PWD': '/',
+                'PWD': self._env._base_path,
                 'VIRTPY_ENV': self._env.name,
                 'LD_LIBRARY_PATH': os.path.join(self._env._base_path, "lib"), # importante, processos dentro do ambiente virtual não tem acesso as bibliotecas do host, apenas as bibliotecas do ambiente, nao importe o que voce faca
                 'VIRTPY_BASE': self._env._base_path,
@@ -1011,7 +1044,7 @@ Retorna o caminho completo se encontrar.
                 input_data: Optional[bytes] = None,
                 capture_output: bool = False,
                 shell: bool = False) -> 'subprocess.Popen':
-            '''Run a command in the virtual environment'''
+            namespace_name = f"virtpy_{self._env.name}"
 
             # Prepare environment
             process_env = self._env.environ.to_dict()
@@ -1019,7 +1052,7 @@ Retorna o caminho completo se encontrar.
             if env:
                 process_env.update(env)
 
-            # ========== NOVA LÓGICA: VERIFICA USE_DEFAULT_COMMAND ==========
+            # USE_DEFAULT_COMMAND logic
             use_default_command = process_env.get('USE_DEFAULT_COMMAND', 'true').lower() == 'true'
 
             # Prepare command
@@ -1030,55 +1063,47 @@ Retorna o caminho completo se encontrar.
             else:
                 command_parts = [command]
 
-            # Se USE_DEFAULT_COMMAND é false, procura comando no PATH
             if not use_default_command and command_parts:
                 first_cmd = command_parts[0]
-                # Não procura comandos built-in do shell ou caminhos absolutos
                 if not first_cmd.startswith(('/', '.', '~')) and '/' not in first_cmd:
                     found_cmd = self._find_command_in_path(first_cmd, process_env)
-
                     if found_cmd:
-                        # Substitui o comando pelo caminho encontrado
                         command_parts[0] = found_cmd
-
-                        # Se for um script Python, adiciona python antes
                         if found_cmd.endswith('.py'):
                             command_parts = ['python'] + command_parts
-                    else:
-                        # Comando não encontrado no PATH
-                        raise RuntimeError(f"Command '{first_cmd}' not found in PATH")
 
-            # Agora command_parts contém o comando correto
             command = command_parts
-            # ========== FIM DA NOVA LÓGICA ==========
 
             # Prepare working directory
             if cwd:
-                real_cwd = self._env.fs._to_virtual_path(cwd)
+                real_cwd = self._env.fs._to_virtual_path(cwd)            
             else:
                 real_cwd = self._env._base_path
 
-            # Create pipes for redirection if needed
+            # Create pipes
             stdin = subprocess.PIPE if input_data is not None else None
             stdout = subprocess.PIPE if capture_output else None
             stderr = subprocess.PIPE if capture_output else subprocess.STDOUT
 
             try:
                 # Run with chroot isolation
-                if False:
-                    pass
-                else:
-                    if isinstance(command, str):
-                        if any(b in command for b in [";", "&&", "||", "&", "$(", "\n", "`", "|", "${"]):
+                if isinstance(command, str):
+                    if any(b in command for b in [";", "&&", "||", "&", "$(", "`", "|", "${"]):
+                        raise SecurityError("illegal char")
+                elif isinstance(command, list):
+                    for item in command:
+                        if any(b in item for b in [";", "&&", "||", "&", "$(", "`", "|", "${"]):
                             raise SecurityError("illegal char")
-                    elif isinstance(command, list):
-                        for item in command:
-                            if any(b in item for b in [";", "&&", "||", "&", "$(", "\n", "`", "|", "${"]): raise SecurityError("illegal char")
-                    if shutil.which("firejail"):
-                        if isinstance(command, list):
-                            # Verifica se temos um IP configurado
-                            if self._env.ip:  # Usa self._env.ip (o IP passado no VirtualEnviron)
-                                # Usa network namespace com IP específico
+
+                if shutil.which("firejail"):
+                    if isinstance(command, list):
+                        # 🔥 NAMESPACE COMPARTILHADO FIXO
+                        
+                        is_first = len(self._processes) == 0
+
+                        if self._env.ip:
+                            if is_first:
+                                # Primeiro processo: cria namespace
                                 firejail_cmd = [
                                     "firejail",
                                     "--chroot=" + real_cwd,
@@ -1088,26 +1113,50 @@ Retorna o caminho completo se encontrar.
                                     "--dns=8.8.8.8",
                                     "--dns=8.8.4.4",
                                     "--noroot",
-                                    "--private-pid",
+                                    "--private-pid",  # CRIA
+                                    f"--name={namespace_name}",  # NOME FIXO
                                     "--private-ipc",
                                     "--private-uts",
                                     "--private",
                                     "--private-dev",
                                     "--private-proc",
                                     "--private-sys",
-                                    "--ignore=env",                                  
+                                    "--ignore=env",          
                                     "--seccomp",
                                     "--caps.drop=all",
-                                     *command
-                                ]
+                                ] + command
                             else:
-                                # Sem IP específico, usa configuração básica
+                                # Processos seguintes: junta
                                 firejail_cmd = [
                                     "firejail",
                                     "--chroot=" + real_cwd,
-                                    "--net=none",  # Ou --net=none para sem rede
+                                    "--net=namespace",
+                                    f"--ip={self._env.ip}",
+                                    f"--defaultgw={self._env.ip.rsplit('.', 1)[0]}.1",
+                                    "--dns=8.8.8.8",
+                                    "--dns=8.8.4.4",
                                     "--noroot",
-                                    "--private-pid",
+                                    f"--join={namespace_name}",  # JUNTA
+                                    "--private-ipc",
+                                    "--private-uts",
+                                    "--private",
+                                    "--private-dev",
+                                    "--private-proc",
+                                    "--private-sys",
+                                    "--ignore=env",          
+                                    "--seccomp",
+                                    "--caps.drop=all",
+                                ] + command
+                        else:
+                            # Sem IP
+                            if is_first:
+                                firejail_cmd = [
+                                    "firejail",
+                                    "--chroot=" + real_cwd,
+                                    "--net=none",
+                                    "--noroot",
+                                    "--private-pid",  # CRIA
+                                    f"--name={namespace_name}",  # NOME FIXO
                                     "--private-ipc",
                                     "--private-uts",
                                     "--private",
@@ -1117,31 +1166,43 @@ Retorna o caminho completo se encontrar.
                                     "--ignore=env",
                                     "--seccomp",
                                     "--caps.drop=all",
-                                    *command
-                                ]
-                        else:
-                            # Para command como string
-                            if self._env.ip:
-                                firejail_cmd = f"firejail --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --noroot --private-pid --private-ipc --private-uts --private --private-proc --private-dev --private-sys --ignore=env --seccomp --caps.drop=all {command}"
+                                ] + command
                             else:
-                                firejail_cmd = f"firejail --chroot={real_cwd} --net=none --noroot --private-pid --private-ipc --private-uts --private --private-proc --private-dev --private-sys --ignore=env --seccomp --caps.drop=all {command}"
+                                firejail_cmd = [
+                                    "firejail",
+                                    "--chroot=" + real_cwd,
+                                    "--net=none",
+                                    "--noroot",
+                                    f"--join={namespace_name}",  # JUNTA
+                                    "--private-ipc",
+                                    "--private-uts",
+                                    "--private",
+                                    "--private-dev",
+                                    "--private-proc",
+                                    "--private-sys",
+                                    "--ignore=env",
+                                    "--seccomp",
+                                    "--caps.drop=all",
+                                ] + command
 
                         com = firejail_cmd
                     else:
-                        com = command
+                        # Para command como string (mantenha sua lógica existente)
+                        # ... (seu código existente) ...
+                        pass
+                else:
+                    com = command
 
+                kwargs = {"cwd": real_cwd} if not shutil.which("firejail") else {}
+                kwargs.update({
+                    "env": process_env,
+                    "stdin": stdin,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "shell": shell
+                })
 
-                    kwargs = {"cwd": real_cwd} if not shutil.which("firejail") else {}
-                    kwargs.update({"env":process_env,
-                        "stdin":stdin,
-                        "stdout":stdout,
-                        "stderr":stderr,
-                        "shell":shell})
-
-                    # Fallback without chroot
-                    proc = subprocess.Popen(                        com,
-                        **kwargs
-                    )
+                proc = subprocess.Popen(com, **kwargs)
 
                 with self._lock:
                     pid = self._next_pid
@@ -1152,6 +1213,9 @@ Retorna o caminho completo se encontrar.
 
             except Exception as e:
                 raise RuntimeError(f"Failed to run command: {e}")
+
+
+
 
 
 
@@ -1886,4 +1950,4 @@ Retorna o caminho completo se encontrar.
         self.ready = False
         time.sleep(1)
 
-__all__ = ['VirtualEnviron']
+__all__ = ["VirtualEnviron"]
