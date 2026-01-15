@@ -955,7 +955,7 @@ class VirtualEnviron:
             """Set environment variable"""
             if key in ["LD_LIBRARY_PATH", "LD_PRELOAD", "PATH"]:
                 path = value.replace("/", "", 1)
-                self._vars = os.path.join(self._env._base_path, str(path))
+                self._vars[key]= os.path.join(self._env._base_path, str(path))
                 return
             self._vars[key] = str(value)
         
