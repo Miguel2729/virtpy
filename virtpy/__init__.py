@@ -1,5 +1,23 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.3.1
+Core implementation of VirtPy - Complete Virtual Environments, v2.4.0
+"""
+"""
+## Why No Windows Support (And Never Will Be)
+
+### Technical Reality:
+1. **Windows lacks process namespaces** → No real process isolation
+2. **No proper chroot equivalent** → Filesystem isolation is theater  
+3. **Security model is binary** → Either full access or no access
+4. **No lightweight copy-on-write** → Containers become VM-heavy
+5. There is no Firejail for Windows.
+
+### What Others Do:
+- Docker Desktop: Runs a Linux VM (hidden)
+- WSL2: Is literally Linux in a VM
+- Python venv: Just PATH manipulation (no isolation)
+
+### Our Choice:
+We refuse to pretend. Either real isolation (Linux) or nothing.
 """
 
 import os
@@ -1102,6 +1120,117 @@ Retorna o caminho completo se encontrar.
                     return cmd
     
             return None
+        
+        def run_with_proot(self, command: Union[str, List[str]],
+                       cwd: Optional[str] = None,
+                       env: Optional[Dict[str, str]] = None,
+                       input_data: Optional[bytes] = None,
+                       capture_output: bool = False,
+                       shell: bool = False) -> 'subprocess.Popen':
+            """
+            Executa comando usando PRoot mantendo compatibilidade com run() original
+            """
+            # Mesma lógica de preparação do método original
+            if isinstance(command, str) and not shell:
+                command_parts = command.split()
+            elif isinstance(command, list):
+                command_parts = command.copy()
+            else:
+                command_parts = [command]
+        
+            # Mesma validação de segurança do original
+            if isinstance(command, str):
+                if any(b in command for b in [";", "&&", "||", "&", "$(", "`", "|", "${"]):
+                    raise SecurityError("illegal char")
+            elif isinstance(command, list):
+                for item in command:
+                    if any(b in item for b in [";", "&&", "||", "&", "$(", "`", "|", "${"]):
+                        raise SecurityError("illegal char")
+        
+            # Prepara ambiente (igual ao original)
+            process_env = self._env.environ.to_dict()
+            process_env.update(self._env.environ.to_dict())
+            if env:
+                process_env.update(env)
+        
+            # Mesma lógica de USE_DEFAULT_COMMAND
+            use_default_command = process_env.get('USE_DEFAULT_COMMAND', 'true').lower() == 'true'
+        
+            if not use_default_command and command_parts:
+                first_cmd = command_parts[0]
+                if not first_cmd.startswith(('/', '.', '~')) and '/' not in first_cmd:
+                    found_cmd = self._find_command_in_path(first_cmd, process_env)
+                    if found_cmd:
+                        command_parts[0] = found_cmd
+                        if found_cmd.endswith('.py'):
+                            command_parts = ['python'] + command_parts
+        
+            # Prepara diretório de trabalho (igual ao original)
+            if cwd:
+                real_cwd = self._env.fs._to_virtual_path(cwd)
+            else:
+                real_cwd = self._env._base_path
+        
+            # Cria pipes (igual ao original)
+            stdin = subprocess.PIPE if input_data is not None else None
+            stdout = subprocess.PIPE if capture_output else None
+            stderr = subprocess.PIPE if capture_output else subprocess.STDOUT
+        
+            # COMANDO PROOT (substitui firejail)
+            proot_cmd = ["proot"]
+        
+            # Configurações básicas equivalentes ao firejail
+            proot_cmd.extend([
+                "--keep-env=ALL"
+                '-S', self._env._base_path,      # Chroot
+                '-w', '/',                       # Working directory (relativo ao chroot)
+                '-r', self._env._base_path,      # Root directory
+            
+                # Bind mounts equivalentes ao --private
+                '-b', f"{self._env._base_path}/proc:/proc",
+                '-b', f"{self._env._base_path}/sys:/sys",
+                '-b', f"{self._env._base_path}/dev:/dev",
+                '-b', f"{self._env._base_path}/tmp:/tmp",
+            
+                # Isolamento equivalente
+                '--kill-on-exit',                # Similar ao firejail
+                '--pidns',                       # PID namespace
+                '--uts',                         # UTS namespace
+            
+                # Network (se IP configurado)
+            ])
+        
+            # Configura rede se tiver IP (equivalente ao --net=namespace)
+            if self._env.ip:
+                proot_cmd.extend(['--netns'])
+            # Não há equivalente exato para IP no PRoot, mas mantemos o namespace
+        
+            # Adiciona comando original
+            proot_cmd.extend(command_parts)
+        
+            # Executa (mesmos parâmetros do original)
+            try:
+                kwargs = {
+                    "cwd": real_cwd,
+                    "env": process_env,
+                    "stdin": stdin,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "shell": shell
+                }
+            
+                proc = subprocess.Popen(proot_cmd, **kwargs)
+            
+                # Registra processo (igual ao original)
+                with self._lock:
+                    pid = self._next_pid
+                    self._next_pid += 1
+                    self._processes[pid] = proc
+            
+                return proc
+            
+            except Exception as e:
+                raise RuntimeError(f"Failed to run command with PRoot: {e}")
 
         def run(self, command: Union[str, List[str]],
                 cwd: Optional[str] = None,
@@ -1252,11 +1381,24 @@ Retorna o caminho completo se encontrar.
 
                         com = firejail_cmd
                     else:
-                        # Para command como string (mantenha sua lógica existente)
-                        # ... (seu código existente) ...
-                        pass
+                        # Para command como string (comando shell)
+                        if shell:
+                            # Se shell=True, executa o comando string diretamente
+                            if self._env.ip:
+                                if is_first:
+                                    firejail_cmd = f"firejail --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --dns=8.8.8.8 --dns=8.8.4.4 --noroot --private-pid --name={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
+                                else:
+                                    firejail_cmd = f"firejail --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --dns=8.8.8.8 --dns=8.8.4.4 --noroot --join={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
+                            else:
+                                if is_first:
+                                    firejail_cmd = f"firejail --chroot={real_cwd} --net=none --noroot --private-pid --name={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
+                                else:
+                                    firejail_cmd = f"firejail --chroot={real_cwd} --net=none --noroot --join={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
+                            com = firejail_cmd
+                            shell = True  # Mantém shell=True para execução
                 else:
-                    com = command
+                    if shutil.which("proot"):
+                        return self.run_with_proot(command, cwd, env, input_data, capture_output, shell)
 
                 kwargs = {"cwd": real_cwd} if not shutil.which("firejail") else {}
                 kwargs.update({
@@ -2018,6 +2160,8 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
+
+
 
 
 
