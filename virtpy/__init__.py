@@ -1181,7 +1181,6 @@ Retorna o caminho completo se encontrar.
         
             # Configurações básicas equivalentes ao firejail
             proot_cmd.extend([
-                "--keep-env=ALL",
                 '-S', self._env._base_path,      # Chroot
                 '-w', '/',                       # Working directory (relativo ao chroot)
                 '-r', self._env._base_path,      # Root directory
