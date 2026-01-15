@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.2.6
+Core implementation of VirtPy - Complete Virtual Environments, v2.2.7
 """
 
 import os
@@ -954,8 +954,9 @@ class VirtualEnviron:
         def set(self, key: str, value: Any):
             """Set environment variable"""
             if key in ["LD_LIBRARY_PATH", "LD_PRELOAD", "PATH"]:
-                path = value.replace("/", "", 1)
-                self._vars[key]= os.path.join(self._env._base_path, str(path))
+                a = value.split(":")
+                path = ":".join([p.replace("/", "", 1) for p in a])
+                self._vars[key] = os.path.join(self._env._base_path, str(path))
                 return
             self._vars[key] = str(value)
         
