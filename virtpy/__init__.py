@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.4.0
+Core implementation of VirtPy - Complete Virtual Environments, v2.4.1
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -1177,7 +1177,7 @@ Retorna o caminho completo se encontrar.
             stderr = subprocess.PIPE if capture_output else subprocess.STDOUT
         
             # COMANDO PROOT (substitui firejail)
-            proot_cmd = ["proot"]
+            proot_cmd = [shutil.which("proot")]
         
             # Configurações básicas equivalentes ao firejail
             proot_cmd.extend([
@@ -1238,6 +1238,7 @@ Retorna o caminho completo se encontrar.
                 input_data: Optional[bytes] = None,
                 capture_output: bool = False,
                 shell: bool = False) -> 'subprocess.Popen':
+            firejail_path = shutil.which("firejail")
             namespace_name = f"virtpy_{self._env.name}"
 
             # Prepare environment
@@ -1299,7 +1300,7 @@ Retorna o caminho completo se encontrar.
                             if is_first:
                                 # Primeiro processo: cria namespace
                                 firejail_cmd = [
-                                    "firejail",
+                                    firejail_path,
                                     "--chroot=" + real_cwd,
                                     "--net=namespace",
                                     f"--ip={self._env.ip}",
@@ -1322,7 +1323,7 @@ Retorna o caminho completo se encontrar.
                             else:
                                 # Processos seguintes: junta
                                 firejail_cmd = [
-                                    "firejail",
+                                    firejail_path,
                                     "--chroot=" + real_cwd,
                                     "--net=namespace",
                                     f"--ip={self._env.ip}",
@@ -1345,7 +1346,7 @@ Retorna o caminho completo se encontrar.
                             # Sem IP
                             if is_first:
                                 firejail_cmd = [
-                                    "firejail",
+                                    firejail_path,
                                     "--chroot=" + real_cwd,
                                     "--net=none",
                                     "--noroot",
@@ -1363,7 +1364,7 @@ Retorna o caminho completo se encontrar.
                                 ] + command
                             else:
                                 firejail_cmd = [
-                                    "firejail",
+                                    firejail_path,
                                     "--chroot=" + real_cwd,
                                     "--net=none",
                                     "--noroot",
@@ -1386,14 +1387,14 @@ Retorna o caminho completo se encontrar.
                             # Se shell=True, executa o comando string diretamente
                             if self._env.ip:
                                 if is_first:
-                                    firejail_cmd = f"firejail --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --dns=8.8.8.8 --dns=8.8.4.4 --noroot --private-pid --name={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
+                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --dns=8.8.8.8 --dns=8.8.4.4 --noroot --private-pid --name={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
                                 else:
-                                    firejail_cmd = f"firejail --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --dns=8.8.8.8 --dns=8.8.4.4 --noroot --join={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
+                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --dns=8.8.8.8 --dns=8.8.4.4 --noroot --join={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
                             else:
                                 if is_first:
-                                    firejail_cmd = f"firejail --chroot={real_cwd} --net=none --noroot --private-pid --name={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
+                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=none --noroot --private-pid --name={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
                                 else:
-                                    firejail_cmd = f"firejail --chroot={real_cwd} --net=none --noroot --join={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
+                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=none --noroot --join={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
                             com = firejail_cmd
                             shell = True  # Mantém shell=True para execução
                 else:
@@ -2160,8 +2161,6 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
-
-
 
 
 
