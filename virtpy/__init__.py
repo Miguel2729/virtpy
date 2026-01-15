@@ -1121,115 +1121,51 @@ Retorna o caminho completo se encontrar.
     
             return None
         
-        def run_with_proot(self, command: Union[str, List[str]],
-                       cwd: Optional[str] = None,
-                       env: Optional[Dict[str, str]] = None,
-                       input_data: Optional[bytes] = None,
-                       capture_output: bool = False,
-                       shell: bool = False) -> 'subprocess.Popen':
-            """
-            Executa comando usando PRoot mantendo compatibilidade com run() original
-            """
-            # Mesma lógica de preparação do método original
+        def run_with_proot(self, command, cwd=None, env=None, input_data=None,
+                           capture_output=False, shell=False):
+            # Parse command (mantém segurança)
             if isinstance(command, str) and not shell:
-                command_parts = command.split()
+                cmd_parts = command.split()
             elif isinstance(command, list):
-                command_parts = command.copy()
+                cmd_parts = command.copy()
             else:
-                command_parts = [command]
-        
-            # Mesma validação de segurança do original
-            if isinstance(command, str):
-                if any(b in command for b in [";", "&&", "||", "&", "$(", "`", "|", "${"]):
-                    raise SecurityError("illegal char")
-            elif isinstance(command, list):
-                for item in command:
-                    if any(b in item for b in [";", "&&", "||", "&", "$(", "`", "|", "${"]):
-                        raise SecurityError("illegal char")
-        
-            # Prepara ambiente (igual ao original)
-            process_env = self._env.environ.to_dict()
-            process_env.update(self._env.environ.to_dict())
-            if env:
-                process_env.update(env)
-        
-            # Mesma lógica de USE_DEFAULT_COMMAND
-            use_default_command = process_env.get('USE_DEFAULT_COMMAND', 'true').lower() == 'true'
-        
-            if not use_default_command and command_parts:
-                first_cmd = command_parts[0]
-                if not first_cmd.startswith(('/', '.', '~')) and '/' not in first_cmd:
-                    found_cmd = self._find_command_in_path(first_cmd, process_env)
-                    if found_cmd:
-                        command_parts[0] = found_cmd
-                        if found_cmd.endswith('.py'):
-                            command_parts = ['python'] + command_parts
-        
-            # Prepara diretório de trabalho (igual ao original)
-            if cwd:
-                real_cwd = self._env.fs._to_virtual_path(cwd)
-            else:
-                real_cwd = self._env._base_path
-        
-            # Cria pipes (igual ao original)
-            stdin = subprocess.PIPE if input_data is not None else None
-            stdout = subprocess.PIPE if capture_output else None
-            stderr = subprocess.PIPE if capture_output else subprocess.STDOUT
-        
-            # COMANDO PROOT (substitui firejail)
-            proot_cmd = [shutil.which("proot")]
-        
-            # Configurações básicas equivalentes ao firejail
-            proot_cmd.extend([
-                '-S', self._env._base_path,      # Chroot
-                '-w', '/',                       # Working directory (relativo ao chroot)
-                '-r', self._env._base_path,      # Root directory
+                cmd_parts = [command]
             
-                # Bind mounts equivalentes ao --private
-                '-b', f"{self._env._base_path}/proc:/proc",
-                '-b', f"{self._env._base_path}/sys:/sys",
-                '-b', f"{self._env._base_path}/dev:/dev",
-                '-b', f"{self._env._base_path}/tmp:/tmp",
+            # Validação de segurança mantida
+            cmd_str = ' '.join(cmd_parts)
+            if any(b in cmd_str for b in [";", "&&", "||", "&", "$(", "`", "|", "${"]):
+                raise SecurityError("illegal char")
             
-                # Isolamento equivalente
-                '--kill-on-exit',                # Similar ao firejail
-                '--pidns',                       # PID namespace
-                '--uts',                         # UTS namespace
+            # Ambiente combinado
+            proc_env = self._env.environ.to_dict()
+            if env: proc_env.update(env)
             
-                # Network (se IP configurado)
-            ])
-        
-            # Configura rede se tiver IP (equivalente ao --net=namespace)
-            if self._env.ip:
-                proot_cmd.extend(['--netns'])
-            # Não há equivalente exato para IP no PRoot, mas mantemos o namespace
-        
-            # Adiciona comando original
-            proot_cmd.extend(command_parts)
-        
-            # Executa (mesmos parâmetros do original)
-            try:
-                kwargs = {
-                    "cwd": real_cwd,
-                    "env": process_env,
-                    "stdin": stdin,
-                    "stdout": stdout,
-                    "stderr": stderr,
-                    "shell": shell
-                }
+            # Cria lista de env para passar como -e VAR=valor
+            proot_cmd = ["proot", "-r", self._env._base_path, "-w", "/"]
             
-                proc = subprocess.Popen(proot_cmd, **kwargs)
+            # Passa TODAS as variáveis com -e
+            for k, v in proc_env.items():
+                proot_cmd.extend(["-e", f"{k}={v}"])
             
-                # Registra processo (igual ao original)
-                with self._lock:
-                    pid = self._next_pid
-                    self._next_pid += 1
-                    self._processes[pid] = proc
+            # Adiciona comando final
+            proot_cmd.extend(cmd_parts)
             
-                return proc
+            # Executa
+            proc = subprocess.Popen(
+                proot_cmd,
+                cwd=self._env.fs._to_virtual_path(cwd) if cwd else self._env._base_path,
+                stdin=subprocess.PIPE if input_data else None,
+                stdout=subprocess.PIPE if capture_output else None,
+                stderr=subprocess.PIPE if capture_output else subprocess.STDOUT,
+                shell=False
+            )
             
-            except Exception as e:
-                raise RuntimeError(f"Failed to run command with PRoot: {e}")
+            with self._lock:
+                pid = self._next_pid
+                self._next_pid += 1
+                self._processes[pid] = proc
+            
+            return proc
 
         def run(self, command: Union[str, List[str]],
                 cwd: Optional[str] = None,
