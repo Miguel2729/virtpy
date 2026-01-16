@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.6.4
+Core implementation of VirtPy - Complete Virtual Environments, v2.6.5
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -1723,6 +1723,10 @@ Retorna o caminho completo se encontrar.
                 self.library.copy("c++") # pode precisar em pydroid
                 self.library.copy("log")
                 self.library.copy("backcompat_shared")
+            self.library.copy("python*")
+            self.library.copy("c++") # pode precisar em pydroid
+            self.library.copy("log")
+            self.library.copy("backcompat_shared")
         for cmd in self.setup_commands:
             result = self.process.run(cmd, shell=True, capture_output=True)
             if result.returncode != 0:
@@ -2072,6 +2076,9 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
+
+
+
 
 
 

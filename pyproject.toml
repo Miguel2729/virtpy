@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "virtpy"
-version = "2.6.4"
+version = "2.6.5"
 description = "Complete Virtual Environments for Python with process, filesystem, and network isolation"
 readme = "README.md"
 authors = [
