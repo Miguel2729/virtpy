@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.5.1
+Core implementation of VirtPy - Complete Virtual Environments, v2.6.0
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -802,33 +802,33 @@ class VirtualEnviron:
         def _setup_fs(self):
             """Initialize virtual filesystem structure"""
             os.makedirs(self._base_path, exist_ok=True)
-            dirs = ["bin", "lib"] 
+            dirs = ["bin", "lib", "usr/bin", "usr/sbin"] 
             for d in dirs:
                 os.makedirs(os.path.join(self._base_path, d), exist_ok=True)
+            if self._env.create_opt:
+                os.makedirs(os.path.join(self._base_path, "opt"))
             
             
             
             # Install basic Python in the environment
             self._install_python()
-        
+            self._install_sh()
+            if self._env.install_pkm:
+                self._install_package_manager
+        def _install_sh(self):
+            if shutil.which("sh"): 
+                self.import_from_host(shutil.which("sh"), f'{self._env.environ.get("PATH", "/bin").split(":")[0]}/sh')
+        def _install_package_manager(self):
+            pkms = ["apt", "apk", "pkg", "pacman", "dnf"]
+            for pkm in pkms:
+                if shutil.which(pkm): 
+                    self.import_from_host(shutil.which(pkm), self._env.environ.get("PATH", "/bin").split(":")[0])
+                    break
+                else:
+                    continue
+                
         def _create_etc_files(self):
-            """Create essential /etc files"""
-            etc_path = os.path.join(self._base_path, 'etc')
-            
-            # hostname
-            with open(os.path.join(etc_path, 'hostname'), 'w') as f:
-                f.write(self._env.name + '\n')
-            
-            # hosts
-            with open(os.path.join(etc_path, 'hosts'), 'w') as f:
-                f.write("127.0.0.1\tlocalhost\n")
-                if self._env.ip:
-                    f.write(f"{self._env.ip}\t{self._env.name}\n")
-            
-            # passwd
-            with open(os.path.join(etc_path, 'passwd'), 'w') as f:
-                f.write("root:x:0:0:root:/root:/bin/bash\n")
-                f.write(f"{self._env.name}:x:1000:1000:{self._env.name}:/home/{self._env.name}:/bin/bash\n")
+            pass # deixe o firejail criar
         
         def _install_python(self):
             """Install Python interpreter in the environment"""
@@ -841,7 +841,7 @@ class VirtualEnviron:
                 if not os.path.exists(target_path):
                     shutil.copy(python_path, target_path)
                     os.chmod(target_path, 0o755)
-                os.symlink(target_path, os.path.join(bin_path, 'python'))
+                
         
         def mkdir(self, path: str, mode: int = 0o777, parents: bool = False):
             """Create directory in virtual filesystem"""
@@ -1212,6 +1212,7 @@ Retorna o caminho completo se encontrar.
                                     "--ignore=shell", 
                                     "--private-tmp",
                                     "--private-run",       
+                                    "--private-etc",
                                     "--seccomp",
                                     "--caps.drop=all",
                                 ] + command
@@ -1219,26 +1220,7 @@ Retorna o caminho completo se encontrar.
                                 # Processos seguintes: junta
                                 firejail_cmd = [
                                     firejail_path,
-                                    "--chroot=" + real_cwd,
-                                    "--net=namespace",
-                                    f"--ip={self._env.ip}",
-                                    f"--defaultgw={self._env.ip.rsplit('.', 1)[0]}.1",
-                                    "--dns=8.8.8.8",
-                                    "--dns=8.8.4.4",
-                                    "--noroot",
-                                    f"--join={namespace_name}",  # JUNTA
-                                    "--private-ipc",
-                                    "--private-uts",
-                                    "--private",
-                                    "--private-dev",
-                                    "--private-proc",
-                                    "--private-sys",
-                                    "--ignore=env",          
-                                    "--ignore=shell",
-                                    "--private-tmp",
-                                    "--private-run",
-                                    "--seccomp",
-                                    "--caps.drop=all",
+                                    f"--join={namespace_name}"
                                 ] + command
                         else:
                             # Sem IP
@@ -1260,28 +1242,14 @@ Retorna o caminho completo se encontrar.
                                     "--ignore=shell",
                                     "--private-tmp",
                                     "--private-run",
+                                    "--private-etc",
                                     "--seccomp",
                                     "--caps.drop=all",
                                 ] + command
                             else:
                                 firejail_cmd = [
                                     firejail_path,
-                                    "--chroot=" + real_cwd,
-                                    "--net=none",
-                                    "--noroot",
-                                    f"--join={namespace_name}",  # JUNTA
-                                    "--private-ipc",
-                                    "--private-uts",
-                                    "--private",
-                                    "--private-dev",
-                                    "--private-proc",
-                                    "--private-sys",
-                                    "--ignore=env",
-                                    "--ignore=shell",
-                                    "--private-tmp",
-                                    "--private-run",
-                                    "--seccomp",
-                                    "--caps.drop=all",
+                                    f"--join={namespace_name}"
                                 ] + command
 
                         com = firejail_cmd
@@ -1291,14 +1259,14 @@ Retorna o caminho completo se encontrar.
                             # Se shell=True, executa o comando string diretamente
                             if self._env.ip:
                                 if is_first:
-                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --dns=8.8.8.8 --dns=8.8.4.4 --noroot --private-pid --name={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --ignore=shell --private-tmp --private-run --seccomp --caps.drop=all {command}"
+                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --dns=8.8.8.8 --dns=8.8.4.4 --noroot --private-pid --name={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --ignore=shell --private-tmp --private-run --private-etc --seccomp --caps.drop=all {command}"
                                 else:
-                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --dns=8.8.8.8 --dns=8.8.4.4 --noroot --join={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --ignore=shell --private-tmp --private-run --seccomp --caps.drop=all {command}"
+                                    firejail_cmd = f"{firejail_path} --join={namespace_name} {command}"
                             else:
                                 if is_first:
-                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=none --noroot --private-pid --name={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --ignore=shell --private-tmp --private-run --seccomp --caps.drop=all {command}"
+                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=none --noroot --private-pid --name={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --ignore=shell --private-tmp --private-run --private-etc --seccomp --caps.drop=all {command}"
                                 else:
-                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=none --noroot --join={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --ignore=shell --private-tmp --private-run --seccomp --caps.drop=all {command}"
+                                    firejail_cmd = f"{firejail_path} --join={namespace_name} {command}"
                             com = firejail_cmd
                             shell = True  # Mantém shell=True para execução
                 else:
@@ -1608,7 +1576,7 @@ Retorna o caminho completo se encontrar.
             
     # Main VirtualEnviron class implementation
     def __init__(self, nome: str, vars: Optional[Dict[str, str]] = None, start: Optional[List[str]] = None,
-                 setup: Optional[List[str]] = None, ip: Optional[str] = None):
+                 setup: Optional[List[str]] = None, ip: Optional[str] = None, create_op: bool = False, install_pkm: bool = False):
         """
         Initialize a new virtual environment.
         
@@ -1619,6 +1587,8 @@ Retorna o caminho completo se encontrar.
             start: Commands to run when starting the environment
             setup: Commands to run during setup
         """
+        self.create_opt = create_opt
+        self.install_pkm = install_pkm
         self.ip = ip
         self.name = nome
         self.vars = vars or {}
@@ -1702,18 +1672,26 @@ Retorna o caminho completo se encontrar.
         """Run setup commands"""
         
         # setup essential libraries
-        self.library.copy("c")
-        self.library.copy("m")
-        self.library.copy("pthread")
-        self.library.copy("dl")
-        self.library.copy("rt")
-        self.library.copy("util")
-        self.library.copy("z")
-        self.library.copy("ssl")
-        self.library.copy("sqlite3")
-        self.library.copy("crypto")
-        self.library.copy("uuid")
-        self.library.copy("readline")
+        self.library.copy("c") # essencial
+        self.library.copy("m") # para matematica
+        self.library.copy("pthread") # para threads
+        self.library.copy("dl") # sei la
+        self.library.copy("rt") # para tempo real
+        self.library.copy("util") # utilidades
+        self.library.copy("z") # zip
+        self.library.copy("ssl") # ssl
+        self.library.copy("sqlite3") # sqlite3
+        self.library.copy("crypto") # sei la
+        self.library.copy("uuid") # biblioteca uuid
+        self.library.copy("readline") # sei la
+        self.library.copy("python*") # essencial
+        self.library.copy("crypt")      # libcrypt.so - Criptografia Unix (pwd, spwd)
+        self.library.copy("nsl")        # libnsl.so - Network services (antigo, ainda usado)
+        self.library.copy("resolv")     # libresolv.so - Resolução DNS
+        self.library.copy("gdbm")       # libgdbm.so - Banco de dados GNU (dbm.gnu)
+        self.library.copy("db")         # libdb.so - Berkeley DB (bsddb)
+        self.library.copy("bz2")        # libbz2.so - Compactação bzip2
+        self.library.copy("lzma")       # liblzma.so - Compactação LZMA
         
         for cmd in self.setup_commands:
             result = self.process.run(cmd, shell=True, capture_output=True)
@@ -2064,5 +2042,8 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
+
+
+
 
 __all__ = ["VirtualEnviron"]
