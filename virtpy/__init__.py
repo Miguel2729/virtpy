@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.6.5
+Core implementation of VirtPy - Complete Virtual Environments, v2.6.4
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -44,6 +44,7 @@ import uuid
 import atexit
 import textwrap
 import glob
+import re
 
 if os.name != "posix":
     print("[warning] Operating system other than Linux. May not function as expected.")
@@ -2076,6 +2077,9 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
+
+
+
 
 
 
