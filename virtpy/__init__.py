@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.4.2
+Core implementation of VirtPy - Complete Virtual Environments, v2.5.1
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -839,7 +839,8 @@ class VirtualEnviron:
             if python_path:
                 target_path = os.path.join(bin_path, 'python3')
                 if not os.path.exists(target_path):
-                    os.symlink(python_path, target_path)
+                    shutil.copy(python_path, target_path)
+                    os.chmod(target_path, 0o755)
                 os.symlink(target_path, os.path.join(bin_path, 'python'))
         
         def mkdir(self, path: str, mode: int = 0o777, parents: bool = False):
@@ -1207,7 +1208,10 @@ Retorna o caminho completo se encontrar.
                                     "--private-dev",
                                     "--private-proc",
                                     "--private-sys",
-                                    "--ignore=env",          
+                                    "--ignore=env",
+                                    "--ignore=shell", 
+                                    "--private-tmp",
+                                    "--private-run",       
                                     "--seccomp",
                                     "--caps.drop=all",
                                 ] + command
@@ -1230,6 +1234,9 @@ Retorna o caminho completo se encontrar.
                                     "--private-proc",
                                     "--private-sys",
                                     "--ignore=env",          
+                                    "--ignore=shell",
+                                    "--private-tmp",
+                                    "--private-run",
                                     "--seccomp",
                                     "--caps.drop=all",
                                 ] + command
@@ -1250,6 +1257,9 @@ Retorna o caminho completo se encontrar.
                                     "--private-proc",
                                     "--private-sys",
                                     "--ignore=env",
+                                    "--ignore=shell",
+                                    "--private-tmp",
+                                    "--private-run",
                                     "--seccomp",
                                     "--caps.drop=all",
                                 ] + command
@@ -1267,6 +1277,9 @@ Retorna o caminho completo se encontrar.
                                     "--private-proc",
                                     "--private-sys",
                                     "--ignore=env",
+                                    "--ignore=shell",
+                                    "--private-tmp",
+                                    "--private-run",
                                     "--seccomp",
                                     "--caps.drop=all",
                                 ] + command
@@ -1278,14 +1291,14 @@ Retorna o caminho completo se encontrar.
                             # Se shell=True, executa o comando string diretamente
                             if self._env.ip:
                                 if is_first:
-                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --dns=8.8.8.8 --dns=8.8.4.4 --noroot --private-pid --name={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
+                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --dns=8.8.8.8 --dns=8.8.4.4 --noroot --private-pid --name={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --ignore=shell --private-tmp --private-run --seccomp --caps.drop=all {command}"
                                 else:
-                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --dns=8.8.8.8 --dns=8.8.4.4 --noroot --join={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
+                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=namespace --ip={self._env.ip} --defaultgw={self._env.ip.rsplit('.', 1)[0]}.1 --dns=8.8.8.8 --dns=8.8.4.4 --noroot --join={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --ignore=shell --private-tmp --private-run --seccomp --caps.drop=all {command}"
                             else:
                                 if is_first:
-                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=none --noroot --private-pid --name={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
+                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=none --noroot --private-pid --name={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --ignore=shell --private-tmp --private-run --seccomp --caps.drop=all {command}"
                                 else:
-                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=none --noroot --join={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --seccomp --caps.drop=all {command}"
+                                    firejail_cmd = f"{firejail_path} --chroot={real_cwd} --net=none --noroot --join={namespace_name} --private-ipc --private-uts --private --private-dev --private-proc --private-sys --ignore=env --ignore=shell --private-tmp --private-run --seccomp --caps.drop=all {command}"
                             com = firejail_cmd
                             shell = True  # Mantém shell=True para execução
                 else:
@@ -2051,7 +2064,5 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
-
-
 
 __all__ = ["VirtualEnviron"]
