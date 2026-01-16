@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.6.1
+Core implementation of VirtPy - Complete Virtual Environments, v2.6.2
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -1605,8 +1605,12 @@ Retorna o caminho completo se encontrar.
         self._other_environments = {}
         
         # Initialize sub-managers
-        self.fs = self.Fs(self)
         self.environ = self.Environ(self)
+        if vars:
+            self.environ.update(vars)
+        
+        self.fs = self.Fs(self)
+        
         self.process = self.Process(self)
         self.package = self.Package(self)
         self.library = self.Library(self)
@@ -2042,6 +2046,9 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
+
+
+
 
 
 
