@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.6.2
+Core implementation of VirtPy - Complete Virtual Environments, v2.6.3
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -1688,7 +1688,6 @@ Retorna o caminho completo se encontrar.
         self.library.copy("crypto") # sei la
         self.library.copy("uuid") # biblioteca uuid
         self.library.copy("readline") # sei la
-        self.library.copy("python*") # essencial
         self.library.copy("crypt")      # libcrypt.so - Criptografia Unix (pwd, spwd)
         self.library.copy("nsl")        # libnsl.so - Network services (antigo, ainda usado)
         self.library.copy("resolv")     # libresolv.so - Resolução DNS
@@ -1696,7 +1695,34 @@ Retorna o caminho completo se encontrar.
         self.library.copy("db")         # libdb.so - Berkeley DB (bsddb)
         self.library.copy("bz2")        # libbz2.so - Compactação bzip2
         self.library.copy("lzma")       # liblzma.so - Compactação LZMA
-        
+        python_bin = os.path.join(self.venv_path, "bin", "python3")
+        if os.path.exists(python_bin):
+            try:
+                # Executa o python com --version para forçar carregamento de libs
+                result = subprocess.run(
+                    ["ldd", python_bin],
+                    capture_output=True,
+                    text=True
+                )
+                
+                # Analisa o output do ldd para encontrar libs "not found"
+                for line in result.stdout.split('\n'):
+                    if 'not found' in line:
+                        # Extrai o nome da lib (ex: libpython3.13.so)
+                        match = re.search(r'(lib[^\.]+\.so[^ ]*)', line)
+                        if match:
+                            lib_full = match.group(1)
+                            # Remove 'lib' no início e '.so' no final
+                            lib_base = lib_full.replace('lib', '', 1).split('.so')[0]
+                            print(f"Faltando: {lib_base}")
+                            self.library.copy(lib_base)
+            except Exception as e:
+                print(f"Erro ao verificar libs: {e}")
+                # Copia apenas as mais críticas
+                self.library.copy("python*")
+                self.library.copy("c++") # pode precisar em pydroid
+                self.library.copy("log")
+                self.library.copy("backcompat_shared")
         for cmd in self.setup_commands:
             result = self.process.run(cmd, shell=True, capture_output=True)
             if result.returncode != 0:
@@ -2046,11 +2072,6 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
-
-
-
-
-
 
 
 __all__ = ["VirtualEnviron"]
