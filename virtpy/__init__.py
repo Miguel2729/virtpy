@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.6.0
+Core implementation of VirtPy - Complete Virtual Environments, v2.6.1
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -1576,7 +1576,7 @@ Retorna o caminho completo se encontrar.
             
     # Main VirtualEnviron class implementation
     def __init__(self, nome: str, vars: Optional[Dict[str, str]] = None, start: Optional[List[str]] = None,
-                 setup: Optional[List[str]] = None, ip: Optional[str] = None, create_op: bool = False, install_pkm: bool = False):
+                 setup: Optional[List[str]] = None, ip: Optional[str] = None, create_opt: bool = False, install_pkm: bool = False):
         """
         Initialize a new virtual environment.
         
