@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.6.3
+Core implementation of VirtPy - Complete Virtual Environments, v2.6.4
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -1695,7 +1695,7 @@ Retorna o caminho completo se encontrar.
         self.library.copy("db")         # libdb.so - Berkeley DB (bsddb)
         self.library.copy("bz2")        # libbz2.so - Compactação bzip2
         self.library.copy("lzma")       # liblzma.so - Compactação LZMA
-        python_bin = os.path.join(self.venv_path, "bin", "python3")
+        python_bin = os.path.join(self._base_path, "bin", "python3")
         if os.path.exists(python_bin):
             try:
                 # Executa o python com --version para forçar carregamento de libs
@@ -2072,6 +2072,9 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
+
+
+
 
 
 __all__ = ["VirtualEnviron"]
