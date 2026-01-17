@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.6.4
+Core implementation of VirtPy - Complete Virtual Environments, v2.7.1
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -1563,9 +1563,30 @@ Retorna o caminho completo se encontrar.
         def get_path(self):
             return self._env.environ.get("LD_LIBRARY_PATH", "?")
         def create_lib(self, name, source):
-            path = self._env.environ.get("LD_LIBRARY_PATH")
-            comando = f"gcc -shared -fPIC -o / {path}/{name}.so -x c - << 'EOF'\n{source}\nEOF"
-            return os.system(comando) == 0
+            path = self._env.environ.get("LD_LIBRARY_PATH").split(":")[0]
+            output_file = f"{path}/{name}.so"
+    
+            try:
+                # Compilar passando source via stdin
+                result = subprocess.run(
+                    ['gcc', '-shared', '-fPIC', '-o', output_file, '-x', 'c', '-'],
+                    input=source,
+                    capture_output=True,
+                    text=True
+        )
+        
+                if result.returncode != 0:
+                    error_msg = result.stderr.strip() if result.stderr else "Erro desconhecido na compilação"
+                    return (False, None, error_msg)
+        
+                return (True, output_file, "Biblioteca criada com sucesso")
+        
+            except FileNotFoundError:
+                return (False, None, "Comando gcc não encontrado. Instale o compilador C.")
+            except PermissionError:
+                return (False, None, f"Permissão negada para criar arquivo em {output_file}")
+            except Exception as e:
+                return (False, None, f"Erro inesperado: {str(e)}")
         def copy(self, lib):
             for path in os.environ.get("LD_LIBRARY_PATH", "/lib").split(":"):
                 full = glob.glob(f"{path}/lib{lib}.so*")
@@ -2077,6 +2098,9 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
+
+
+
 
 
 
