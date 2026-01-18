@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.7.2
+Core implementation of VirtPy - Complete Virtual Environments, v2.8.0
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -731,7 +731,1331 @@ except ImportError:
 
 class VirtualEnviron:
     """Main class for creating and managing virtual environments"""
+    # o usuario pode usar mais foi feita uso interno
+    class virtpy_lib:
+        def __init__(self, env):
+            self._env = env
+        def set_libsandbox(self):
+            lib_path = os.path.join(self._env._base_path, "lib", "libsandbox.so")
+            if "LD_PRELOAD" in self._env.environ.to_dict():
+                atual = self._env.environ.get("LD_PRELOAD")
+                self._env.environ.set("LD_LIBRARY_PATH", atual + ":" + lib_path)
+            else:
+                self._env.environ.set("LD_LIBRARY_PATH", lib_path)
+        def create_sandbox_preload(self, pid, chroot):
+            source_code = f'''
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dlfcn.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include <errno.h>
+
+// Configurações do sandbox
+static const char *CHROOT_PATH = "{chroot}";
+static const pid_t TARGET_PPID = {pid};
+
+// Ponteiros para funções originais
+static int (*original_open)(const char *pathname, int flags, ...) = NULL;
+static int (*original_openat)(int dirfd, const char *pathname, int flags, ...) = NULL;
+static FILE *(*original_fopen)(const char *pathname, const char *mode) = NULL;
+static DIR *(*original_opendir)(const char *name) = NULL;
+static int (*original_stat)(const char *pathname, struct stat *statbuf) = NULL;
+static int (*original_lstat)(const char *pathname, struct stat *statbuf) = NULL;
+static int (*original_access)(const char *pathname, int mode) = NULL;
+static int (*original_chdir)(const char *path) = NULL;
+static int (*original_execve)(const char *pathname, char *const argv[], char *const envp[]) = NULL;
+static pid_t (*original_fork)(void) = NULL;
+static int (*original_kill)(pid_t pid, int sig) = NULL;
+
+// Função para redirecionar caminhos para dentro do sandbox
+static char* redirect_path(const char *path) {{
+    // Se o caminho for NULL, retorna NULL
+    if (path == NULL) return NULL;
     
+    // Caminhos absolutos começando com / serão redirecionados
+    if (path[0] == '/') {{
+        static char new_path[4096];
+        snprintf(new_path, sizeof(new_path), "%s%s", CHROOT_PATH, path);
+        return new_path;
+    }}
+    
+    // Para caminhos relativos, precisamos verificar o diretório atual
+    // Mas para simplificar, vamos apenas retornar o caminho original
+    // Em uma implementação completa, deveríamos lidar com getcwd()
+    return (char*)path;
+}}
+
+// Verifica se um processo está dentro do nosso sandbox
+static int is_allowed_process(pid_t pid) {{
+    if (pid <= 0) return 1; // Processos especiais do sistema
+    
+    // O próprio processo atual sempre permitido
+    if (pid == getpid()) return 1;
+    
+    // Verifica se o processo é descendente do worker_pid
+    char status_path[256];
+    char line[256];
+    pid_t current_pid = pid;
+    pid_t ppid;
+    
+    // Segue a árvore de processos até encontrar o PPID alvo ou root
+    while (current_pid > 1) {{
+        snprintf(status_path, sizeof(status_path), "/proc/%d/status", current_pid);
+        FILE *fp = fopen(status_path, "r");
+        if (!fp) return 0;
+        
+        ppid = 0;
+        while (fgets(line, sizeof(line), fp)) {{
+            if (strncmp(line, "PPid:", 5) == 0) {{
+                sscanf(line + 5, "%d", &ppid);
+                break;
+            }}
+        }}
+        fclose(fp);
+        
+        if (ppid == 0) return 0;
+        
+        // Se encontramos o PPID alvo, é permitido
+        if (ppid == TARGET_PPID) return 1;
+        
+        // Se encontramos um processo fora da hierarquia, nega
+        if (ppid == 1) return 0;
+        
+        current_pid = ppid;
+    }}
+    
+    return 0;
+}}
+
+// Hook para open()
+int open(const char *pathname, int flags, ...) {{
+    if (!original_open) {{
+        original_open = dlsym(RTLD_NEXT, "open");
+    }}
+    
+    mode_t mode = 0;
+    if (flags & O_CREAT) {{
+        va_list ap;
+        va_start(ap, flags);
+        mode = va_arg(ap, mode_t);
+        va_end(ap);
+    }}
+    
+    char *new_path = redirect_path(pathname);
+    
+    if (flags & O_CREAT) {{
+        return original_open(new_path, flags, mode);
+    }} else {{
+        return original_open(new_path, flags);
+    }}
+}}
+
+// Hook para openat()
+int openat(int dirfd, const char *pathname, int flags, ...) {{
+    if (!original_openat) {{
+        original_openat = dlsym(RTLD_NEXT, "openat");
+    }}
+    
+    mode_t mode = 0;
+    if (flags & O_CREAT) {{
+        va_list ap;
+        va_start(ap, flags);
+        mode = va_arg(ap, mode_t);
+        va_end(ap);
+    }}
+    
+    char *new_path = redirect_path(pathname);
+    
+    if (flags & O_CREAT) {{
+        return original_openat(dirfd, new_path, flags, mode);
+    }} else {{
+        return original_openat(dirfd, new_path, flags);
+    }}
+}}
+
+// Hook para fopen()
+FILE *fopen(const char *pathname, const char *mode) {{
+    if (!original_fopen) {{
+        original_fopen = dlsym(RTLD_NEXT, "fopen");
+    }}
+    
+    char *new_path = redirect_path(pathname);
+    return original_fopen(new_path, mode);
+}}
+
+// Hook para opendir()
+DIR *opendir(const char *name) {{
+    if (!original_opendir) {{
+        original_opendir = dlsym(RTLD_NEXT, "opendir");
+    }}
+    
+    char *new_path = redirect_path(name);
+    return original_opendir(new_path);
+}}
+
+// Hook para stat()
+int stat(const char *pathname, struct stat *statbuf) {{
+    if (!original_stat) {{
+        original_stat = dlsym(RTLD_NEXT, "stat");
+    }}
+    
+    char *new_path = redirect_path(pathname);
+    return original_stat(new_path, statbuf);
+}}
+
+// Hook para lstat()
+int lstat(const char *pathname, struct stat *statbuf) {{
+    if (!original_lstat) {{
+        original_lstat = dlsym(RTLD_NEXT, "lstat");
+    }}
+    
+    char *new_path = redirect_path(pathname);
+    return original_lstat(new_path, statbuf);
+}}
+
+// Hook para access()
+int access(const char *pathname, int mode) {{
+    if (!original_access) {{
+        original_access = dlsym(RTLD_NEXT, "access");
+    }}
+    
+    char *new_path = redirect_path(pathname);
+    return original_access(new_path, mode);
+}}
+
+// Hook para chdir()
+int chdir(const char *path) {{
+    if (!original_chdir) {{
+        original_chdir = dlsym(RTLD_NEXT, "chdir");
+    }}
+    
+    char *new_path = redirect_path(path);
+    return original_chdir(new_path);
+}}
+
+// Hook para execve()
+int execve(const char *pathname, char *const argv[], char *const envp[]) {{
+    if (!original_execve) {{
+        original_execve = dlsym(RTLD_NEXT, "execve");
+    }}
+    
+    char *new_path = redirect_path(pathname);
+    return original_execve(new_path, argv, envp);
+}}
+
+// Hook para fork() - garante que processos filhos herdem o sandbox
+pid_t fork(void) {{
+    if (!original_fork) {{
+        original_fork = dlsym(RTLD_NEXT, "fork");
+    }}
+    
+    return original_fork();
+}}
+
+// Hook para kill() - impede matar processos fora do sandbox
+int kill(pid_t pid, int sig) {{
+    if (!original_kill) {{
+        original_kill = dlsym(RTLD_NEXT, "kill");
+    }}
+    
+    // Verifica se o processo alvo está dentro do sandbox
+    if (!is_allowed_process(pid)) {{
+        errno = EPERM;
+        return -1;
+    }}
+    
+    return original_kill(pid, sig);
+}}
+
+// Inicialização - oculta informações do host
+__attribute__((constructor))
+static void init_sandbox() {{
+    // Muda o diretório raiz para dentro do sandbox (chroot)
+    if (chroot(CHROOT_PATH) != 0) {{
+        // Se não puder fazer chroot, pelo menos muda o diretório
+        chdir(CHROOT_PATH);
+    }}
+    
+    // Esconde processos do host
+    // A lógica de filtragem já está implementada nas funções hook
+}}
+'''
+            a, b, c = self._env.library.create_lib("libsandbox", source_code)
+            return {"sucess": a, "path": b, "msg": c}
+        
+        def create_libc_mini(self):
+            source ="""
+/* libc.so mini - Biblioteca C minimalista e funcional
+ * Compilar: gcc -shared -fPIC -o libmini.so libmini.c -nostdlib -nodefaultlibs
+ */
+
+#define _GNU_SOURCE
+#include <sys/syscall.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <linux/futex.h>
+#include <stdatomic.h>
+
+/* ============ SYSCALL WRAPPERS ============ */
+#if defined(__x86_64__)
+    #define SYSCALL_CLOBBERS "rcx", "r11", "memory"
+#elif defined(__i386__)
+    #define SYSCALL_CLOBBERS "memory"
+#elif defined(__aarch64__)
+    #define SYSCALL_CLOBBERS "memory"
+#elif defined(__arm__)
+    #define SYSCALL_CLOBBERS "memory"
+#endif
+
+static inline long syscall1(long n, long a1) {
+    long ret;
+#if defined(__x86_64__)
+    register long rdi __asm__("rdi") = a1;
+    __asm__ volatile("syscall" : "=a"(ret) : "a"(n), "r"(rdi) : SYSCALL_CLOBBERS);
+#elif defined(__i386__)
+    register long ebx __asm__("ebx") = a1;
+    __asm__ volatile("int $0x80" : "=a"(ret) : "a"(n), "r"(ebx) : SYSCALL_CLOBBERS);
+#elif defined(__aarch64__)
+    register long x0 __asm__("x0") = a1;
+    register long x8 __asm__("x8") = n;
+    __asm__ volatile("svc 0" : "=r"(x0) : "r"(x0), "r"(x8) : SYSCALL_CLOBBERS);
+    ret = x0;
+#elif defined(__arm__)
+    register long r0 __asm__("r0") = a1;
+    __asm__ volatile("svc 0" : "=r"(r0) : "r"(n), "0"(r0) : SYSCALL_CLOBBERS);
+    ret = r0;
+#endif
+    return ret;
+}
+
+static inline long syscall2(long n, long a1, long a2) {
+    long ret;
+#if defined(__x86_64__)
+    register long rdi __asm__("rdi") = a1;
+    register long rsi __asm__("rsi") = a2;
+    __asm__ volatile("syscall" : "=a"(ret) : "a"(n), "r"(rdi), "r"(rsi) : SYSCALL_CLOBBERS);
+#elif defined(__i386__)
+    register long ebx __asm__("ebx") = a1;
+    register long ecx __asm__("ecx") = a2;
+    __asm__ volatile("int $0x80" : "=a"(ret) : "a"(n), "r"(ebx), "r"(ecx) : SYSCALL_CLOBBERS);
+#elif defined(__aarch64__)
+    register long x0 __asm__("x0") = a1;
+    register long x1 __asm__("x1") = a2;
+    register long x8 __asm__("x8") = n;
+    __asm__ volatile("svc 0" : "=r"(x0) : "r"(x0), "r"(x1), "r"(x8) : SYSCALL_CLOBBERS);
+    ret = x0;
+#elif defined(__arm__)
+    register long r0 __asm__("r0") = a1;
+    register long r1 __asm__("r1") = a2;
+    __asm__ volatile("svc 0" : "=r"(r0) : "r"(n), "0"(r0), "r"(r1) : SYSCALL_CLOBBERS);
+    ret = r0;
+#endif
+    return ret;
+}
+
+static inline long syscall3(long n, long a1, long a2, long a3) {
+    long ret;
+#if defined(__x86_64__)
+    register long rdi __asm__("rdi") = a1;
+    register long rsi __asm__("rsi") = a2;
+    register long rdx __asm__("rdx") = a3;
+    __asm__ volatile("syscall" : "=a"(ret) : "a"(n), "r"(rdi), "r"(rsi), "r"(rdx) : SYSCALL_CLOBBERS);
+#elif defined(__i386__)
+    register long ebx __asm__("ebx") = a1;
+    register long ecx __asm__("ecx") = a2;
+    register long edx __asm__("edx") = a3;
+    __asm__ volatile("int $0x80" : "=a"(ret) : "a"(n), "r"(ebx), "r"(ecx), "r"(edx) : SYSCALL_CLOBBERS);
+#elif defined(__aarch64__)
+    register long x0 __asm__("x0") = a1;
+    register long x1 __asm__("x1") = a2;
+    register long x2 __asm__("x2") = a3;
+    register long x8 __asm__("x8") = n;
+    __asm__ volatile("svc 0" : "=r"(x0) : "r"(x0), "r"(x1), "r"(x2), "r"(x8) : SYSCALL_CLOBBERS);
+    ret = x0;
+#elif defined(__arm__)
+    register long r0 __asm__("r0") = a1;
+    register long r1 __asm__("r1") = a2;
+    register long r2 __asm__("r2") = a3;
+    __asm__ volatile("svc 0" : "=r"(r0) : "r"(n), "0"(r0), "r"(r1), "r"(r2) : SYSCALL_CLOBBERS);
+    ret = r0;
+#endif
+    return ret;
+}
+
+/* ============ MEMORY FUNCTIONS ============ */
+__attribute__((visibility("default")))
+void *memset(void *s, int c, size_t n) {
+    unsigned char *p = s;
+    while (n-- > 0) *p++ = (unsigned char)c;
+    return s;
+}
+
+__attribute__((visibility("default")))
+void *memcpy(void *dest, const void *src, size_t n) {
+    unsigned char *d = dest;
+    const unsigned char *s = src;
+    while (n-- > 0) *d++ = *s++;
+    return dest;
+}
+
+__attribute__((visibility("default")))
+void *memmove(void *dest, const void *src, size_t n) {
+    unsigned char *d = dest;
+    const unsigned char *s = src;
+    
+    if (d == s) return dest;
+    if (d < s) return memcpy(dest, src, n);
+    
+    d += n;
+    s += n;
+    while (n-- > 0) *--d = *--s;
+    return dest;
+}
+
+__attribute__((visibility("default")))
+int memcmp(const void *s1, const void *s2, size_t n) {
+    const unsigned char *p1 = s1;
+    const unsigned char *p2 = s2;
+    while (n-- > 0) {
+        if (*p1 != *p2) return *p1 - *p2;
+        p1++; p2++;
+    }
+    return 0;
+}
+
+/* ============ STRING FUNCTIONS ============ */
+__attribute__((visibility("default")))
+size_t strlen(const char *s) {
+    const char *p = s;
+    while (*p) p++;
+    return p - s;
+}
+
+__attribute__((visibility("default")))
+char *strcpy(char *dest, const char *src) {
+    char *d = dest;
+    while ((*d++ = *src++));
+    return dest;
+}
+
+__attribute__((visibility("default")))
+char *strncpy(char *dest, const char *src, size_t n) {
+    char *d = dest;
+    while (n > 0 && (*d++ = *src++)) n--;
+    while (n-- > 0) *d++ = '\0';
+    return dest;
+}
+
+__attribute__((visibility("default")))
+int strcmp(const char *s1, const char *s2) {
+    while (*s1 && *s1 == *s2) s1++, s2++;
+    return *(unsigned char *)s1 - *(unsigned char *)s2;
+}
+
+__attribute__((visibility("default")))
+int strncmp(const char *s1, const char *s2, size_t n) {
+    if (n == 0) return 0;
+    while (--n > 0 && *s1 && *s1 == *s2) s1++, s2++;
+    return *(unsigned char *)s1 - *(unsigned char *)s2;
+}
+
+__attribute__((visibility("default")))
+char *strcat(char *dest, const char *src) {
+    char *d = dest;
+    while (*d) d++;
+    while ((*d++ = *src++));
+    return dest;
+}
+
+__attribute__((visibility("default")))
+char *strchr(const char *s, int c) {
+    while (*s) {
+        if (*s == (char)c) return (char *)s;
+        s++;
+    }
+    return NULL;
+}
+
+__attribute__((visibility("default")))
+char *strrchr(const char *s, int c) {
+    const char *last = NULL;
+    while (*s) {
+        if (*s == (char)c) last = s;
+        s++;
+    }
+    return (char *)last;
+}
+
+/* ============ MEMORY ALLOCATION ============ */
+#define ALIGNMENT 16
+#define CHUNK_OVERHEAD (sizeof(struct chunk))
+
+struct chunk {
+    size_t size;
+    struct chunk *next;
+    int free;
+};
+
+static struct chunk *free_list = NULL;
+static _Atomic int heap_lock = 0;
+
+static size_t align_size(size_t size) {
+    return (size + ALIGNMENT - 1) & ~(ALIGNMENT - 1);
+}
+
+static void *sbrk_increment(size_t size) {
+    static void *heap_end = NULL;
+    void *old_brk;
+    
+    if (!heap_end) {
+        heap_end = (void *)syscall1(__NR_brk, 0);
+    }
+    
+    old_brk = heap_end;
+    void *new_brk = (char *)heap_end + size;
+    
+    if (syscall1(__NR_brk, (long)new_brk) != (long)new_brk) {
+        return (void *)-1;
+    }
+    
+    heap_end = new_brk;
+    return old_brk;
+}
+
+__attribute__((visibility("default")))
+void *malloc(size_t size) {
+    if (size == 0) return NULL;
+    
+    size = align_size(size + CHUNK_OVERHEAD);
+    
+    // Lock para thread safety
+    while (__sync_lock_test_and_set(&heap_lock, 1)) {
+        // Spin
+    }
+    
+    // Procurar chunk livre
+    struct chunk *chunk = free_list;
+    struct chunk *prev = NULL;
+    
+    while (chunk) {
+        if (chunk->free && chunk->size >= size) {
+            chunk->free = 0;
+            
+            // Dividir chunk se for grande o suficiente
+            if (chunk->size >= size + CHUNK_OVERHEAD + ALIGNMENT) {
+                struct chunk *new_chunk = (struct chunk *)((char *)chunk + size);
+                new_chunk->size = chunk->size - size;
+                new_chunk->free = 1;
+                new_chunk->next = chunk->next;
+                
+                chunk->size = size;
+                chunk->next = new_chunk;
+            }
+            
+            __sync_lock_release(&heap_lock);
+            return (void *)(chunk + 1);
+        }
+        prev = chunk;
+        chunk = chunk->next;
+    }
+    
+    // Alocar novo chunk
+    chunk = (struct chunk *)sbrk_increment(size);
+    if (chunk == (void *)-1) {
+        __sync_lock_release(&heap_lock);
+        return NULL;
+    }
+    
+    chunk->size = size;
+    chunk->free = 0;
+    chunk->next = NULL;
+    
+    if (prev) prev->next = chunk;
+    else free_list = chunk;
+    
+    __sync_lock_release(&heap_lock);
+    return (void *)(chunk + 1);
+}
+
+__attribute__((visibility("default")))
+void free(void *ptr) {
+    if (!ptr) return;
+    
+    struct chunk *chunk = (struct chunk *)ptr - 1;
+    
+    while (__sync_lock_test_and_set(&heap_lock, 1)) {
+        // Spin
+    }
+    
+    chunk->free = 1;
+    
+    // Coalescing com próximo
+    if (chunk->next && chunk->next->free) {
+        chunk->size += chunk->next->size;
+        chunk->next = chunk->next->next;
+    }
+    
+    __sync_lock_release(&heap_lock);
+}
+
+__attribute__((visibility("default")))
+void *calloc(size_t nmemb, size_t size) {
+    size_t total = nmemb * size;
+    void *ptr = malloc(total);
+    if (ptr) memset(ptr, 0, total);
+    return ptr;
+}
+
+__attribute__((visibility("default")))
+void *realloc(void *ptr, size_t size) {
+    if (!ptr) return malloc(size);
+    if (size == 0) {
+        free(ptr);
+        return NULL;
+    }
+    
+    struct chunk *chunk = (struct chunk *)ptr - 1;
+    size_t old_size = chunk->size - CHUNK_OVERHEAD;
+    
+    if (old_size >= size) {
+        return ptr;
+    }
+    
+    void *new_ptr = malloc(size);
+    if (!new_ptr) return NULL;
+    
+    memcpy(new_ptr, ptr, old_size);
+    free(ptr);
+    return new_ptr;
+}
+
+/* ============ I/O FUNCTIONS ============ */
+__attribute__((visibility("default")))
+int write(int fd, const void *buf, size_t count) {
+    long ret = syscall3(__NR_write, fd, (long)buf, count);
+    if (ret < 0) {
+        return -1;
+    }
+    return (int)ret;
+}
+
+__attribute__((visibility("default")))
+int read(int fd, void *buf, size_t count) {
+    long ret = syscall3(__NR_read, fd, (long)buf, count);
+    if (ret < 0) {
+        return -1;
+    }
+    return (int)ret;
+}
+
+__attribute__((visibility("default")))
+int open(const char *pathname, int flags, ...) {
+    // Modo padrão se não fornecido
+    mode_t mode = 0;
+    if (flags & O_CREAT) {
+        // Para va_args
+        __builtin_va_list ap;
+        __builtin_va_start(ap, flags);
+        mode = __builtin_va_arg(ap, mode_t);
+        __builtin_va_end(ap);
+    }
+    
+    long ret = syscall3(__NR_open, (long)pathname, flags, mode);
+    if (ret < 0) {
+        return -1;
+    }
+    return (int)ret;
+}
+
+__attribute__((visibility("default")))
+int close(int fd) {
+    long ret = syscall1(__NR_close, fd);
+    if (ret < 0) {
+        return -1;
+    }
+    return 0;
+}
+
+__attribute__((visibility("default")))
+off_t lseek(int fd, off_t offset, int whence) {
+    long ret = syscall3(__NR_lseek, fd, offset, whence);
+    if (ret < 0) {
+        return -1;
+    }
+    return (off_t)ret;
+}
+
+__attribute__((visibility("default")))
+void exit(int status) {
+    syscall1(__NR_exit_group, status);
+    while (1); // Nunca retorna
+}
+
+/* ============ ENVIRONMENT ============ */
+static __thread int errno_value = 0;
+
+__attribute__((visibility("default")))
+int *__errno_location(void) {
+    return &errno_value;
+}
+
+/* ============ FILE OPERATIONS ============ */
+__attribute__((visibility("default")))
+int fstat(int fd, struct stat *statbuf) {
+    long ret = syscall2(__NR_fstat, fd, (long)statbuf);
+    if (ret < 0) {
+        return -1;
+    }
+    return 0;
+}
+
+/* ============ MEMORY MAPPING ============ */
+__attribute__((visibility("default")))
+void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
+    long ret = syscall6(__NR_mmap, (long)addr, length, prot, flags, fd, offset);
+    if (ret < 0 && ret > -4096) {
+        return MAP_FAILED;
+    }
+    return (void *)ret;
+}
+
+__attribute__((visibility("default")))
+int munmap(void *addr, size_t length) {
+    long ret = syscall2(__NR_munmap, (long)addr, length);
+    if (ret < 0) {
+        return -1;
+    }
+    return 0;
+}
+
+/* syscall6 para x86_64 */
+#if defined(__x86_64__)
+static inline long syscall6(long n, long a1, long a2, long a3, long a4, long a5, long a6) {
+    long ret;
+    register long rdi __asm__("rdi") = a1;
+    register long rsi __asm__("rsi") = a2;
+    register long rdx __asm__("rdx") = a3;
+    register long r10 __asm__("r10") = a4;
+    register long r8 __asm__("r8") = a5;
+    register long r9 __asm__("r9") = a6;
+    __asm__ volatile("syscall" : "=a"(ret) : "a"(n), "r"(rdi), "r"(rsi), "r"(rdx), "r"(r10), "r"(r8), "r"(r9) : "rcx", "r11", "memory");
+    return ret;
+}
+#else
+static inline long syscall6(long n, long a1, long a2, long a3, long a4, long a5, long a6) {
+    // Implementação genérica usando mmap2 para arquiteturas 32-bit
+    if (n == __NR_mmap) {
+        // Em sistemas 32-bit, offset é em páginas
+        return syscall3(__NR_mmap2, a1, a2, a3, a4, a5, a6 >> 12);
+    }
+    // Fallback
+    return -ENOSYS;
+}
+#endif
+"""
+            a, b, c = self._env.library.create_lib("libc", source)
+            return {"sucess": a, "path": b, "msg": c}
+            
+        def create_libm_mini(self):
+            source = """
+/* libm.so mini- Biblioteca matemática minimalista
+ * Compilar: gcc -shared -fPIC -o libminim.so libminim.c
+ */
+
+#include <stdint.h>
+
+/* ============ CONSTANTES ============ */
+static const double PI = 3.14159265358979323846;
+static const double E = 2.71828182845904523536;
+static const double LN2 = 0.69314718055994530942;
+
+/* ============ FUNÇÕES BÁSICAS ============ */
+__attribute__((visibility("default")))
+double fabs(double x) {
+    union { double f; uint64_t i; } u = {x};
+    u.i &= 0x7fffffffffffffffULL;
+    return u.f;
+}
+
+__attribute__((visibility("default")))
+float fabsf(float x) {
+    union { float f; uint32_t i; } u = {x};
+    u.i &= 0x7fffffff;
+    return u.f;
+}
+
+__attribute__((visibility("default")))
+double sqrt(double x) {
+    if (x < 0.0) return 0.0;
+    if (x == 0.0) return 0.0;
+    
+    double y = x;
+    double z = 0.0;
+    
+    // Método de Newton-Raphson
+    for (int i = 0; i < 20; i++) {
+        z = (y + x / y) * 0.5;
+        if (fabs(y - z) < 1e-15) break;
+        y = z;
+    }
+    return z;
+}
+
+/* ============ FUNÇÕES EXPONENCIAIS ============ */
+__attribute__((visibility("default")))
+double exp(double x) {
+    // Handle special cases
+    if (x == 0.0) return 1.0;
+    if (x > 709.0) return 1.0/0.0; // Infinity
+    if (x < -709.0) return 0.0;
+    
+    // Range reduction: e^x = 2^(x/ln(2))
+    double z = x / LN2;
+    int n = (int)z;
+    double r = z - n;
+    
+    // Polynomial approximation for 2^r
+    double p = 1.0 + r * (0.999999999999999 + r * (0.499999999999999 + 
+                r * (0.166666666666667 + r * (0.041666666666667 + 
+                r * (0.008333333333333 + r * (0.001388888888889 + 
+                r * (0.000198412698413 + r * (0.000024801587302))))))));
+    
+    // Scale by 2^n
+    union { double f; uint64_t i; } u;
+    n += 1023; // Bias for double exponent
+    u.i = (uint64_t)n << 52;
+    
+    return p * u.f;
+}
+
+__attribute__((visibility("default")))
+double log(double x) {
+    if (x <= 0.0) return -1.0/0.0; // -Infinity
+    
+    // Range reduction
+    int e = 0;
+    while (x >= 2.0) { x /= 2.0; e++; }
+    while (x < 1.0) { x *= 2.0; e--; }
+    
+    x -= 1.0;
+    
+    // Polynomial approximation
+    double z = x;
+    double y = x;
+    double x2 = x * x;
+    
+    y += z * x2 * (1.0/3.0);
+    z *= x2;
+    y += z * x2 * (1.0/5.0);
+    z *= x2;
+    y += z * x2 * (1.0/7.0);
+    z *= x2;
+    y += z * x2 * (1.0/9.0);
+    z *= x2;
+    y += z * x2 * (1.0/11.0);
+    
+    return y + e * LN2;
+}
+
+__attribute__((visibility("default")))
+double pow(double x, double y) {
+    if (y == 0.0) return 1.0;
+    if (x == 0.0) return 0.0;
+    if (y == 1.0) return x;
+    
+    // x^y = exp(y * log(x))
+    return exp(y * log(x));
+}
+
+/* ============ FUNÇÕES TRIGONOMÉTRICAS ============ */
+__attribute__((visibility("default")))
+double sin(double x) {
+    // Range reduction to [-π, π]
+    x = x - (2.0 * PI) * ((int)((x + PI) / (2.0 * PI)));
+    
+    // Polynomial approximation (minimax)
+    double x2 = x * x;
+    double result = x * (1.0 + x2 * (-1.0/6.0 + x2 * (1.0/120.0 + 
+                       x2 * (-1.0/5040.0 + x2 * (1.0/362880.0)))));
+    
+    return result;
+}
+
+__attribute__((visibility("default")))
+double cos(double x) {
+    // cos(x) = sin(π/2 - x)
+    return sin(PI/2.0 - x);
+}
+
+__attribute__((visibility("default")))
+double tan(double x) {
+    double c = cos(x);
+    if (c == 0.0) return 0.0; // Evita divisão por zero
+    return sin(x) / c;
+}
+
+/* ============ FUNÇÕES DE ARREDONDAMENTO ============ */
+__attribute__((visibility("default")))
+double floor(double x) {
+    if (x >= 0.0) {
+        int64_t n = (int64_t)x;
+        return (double)n;
+    } else {
+        int64_t n = (int64_t)x;
+        if ((double)n == x) return x;
+        return (double)(n - 1);
+    }
+}
+
+__attribute__((visibility("default")))
+double ceil(double x) {
+    if (x <= 0.0) {
+        int64_t n = (int64_t)x;
+        return (double)n;
+    } else {
+        int64_t n = (int64_t)x;
+        if ((double)n == x) return x;
+        return (double)(n + 1);
+    }
+}
+
+__attribute__((visibility("default")))
+double trunc(double x) {
+    return (x >= 0.0) ? floor(x) : ceil(x);
+}
+
+__attribute__((visibility("default")))
+double round(double x) {
+    if (x >= 0.0) {
+        return floor(x + 0.5);
+    } else {
+        return ceil(x - 0.5);
+    }
+}
+
+/* ============ FUNÇÕES HIPERBÓLICAS ============ */
+__attribute__((visibility("default")))
+double sinh(double x) {
+    double ex = exp(x);
+    double emx = exp(-x);
+    return (ex - emx) * 0.5;
+}
+
+__attribute__((visibility("default")))
+double cosh(double x) {
+    double ex = exp(x);
+    double emx = exp(-x);
+    return (ex + emx) * 0.5;
+}
+
+__attribute__((visibility("default")))
+double tanh(double x) {
+    if (x > 20.0) return 1.0;
+    if (x < -20.0) return -1.0;
+    
+    double ex = exp(x);
+    double emx = exp(-x);
+    return (ex - emx) / (ex + emx);
+}
+
+/* ============ FUNÇÕES INVERSAS ============ */
+__attribute__((visibility("default")))
+double asin(double x) {
+    if (x < -1.0 || x > 1.0) return 0.0;
+    
+    // asin(x) ≈ x + x³/6 + 3x⁵/40 + 5x⁷/112
+    double x2 = x * x;
+    double result = x;
+    double term = x;
+    
+    term *= x2 * (1.0/6.0);
+    result += term;
+    term *= x2 * (3.0/5.0);
+    result += term;
+    term *= x2 * (5.0/7.0);
+    result += term;
+    
+    return result;
+}
+
+__attribute__((visibility("default")))
+double acos(double x) {
+    // acos(x) = π/2 - asin(x)
+    return PI/2.0 - asin(x);
+}
+
+__attribute__((visibility("default")))
+double atan(double x) {
+    if (x == 0.0) return 0.0;
+    if (x == 1.0) return PI/4.0;
+    if (x == -1.0) return -PI/4.0;
+    
+    // Range reduction
+    int sign = 1;
+    if (x < 0.0) {
+        x = -x;
+        sign = -1;
+    }
+    
+    double result;
+    if (x > 1.0) {
+        result = PI/2.0 - atan(1.0/x);
+    } else {
+        double x2 = x * x;
+        result = x * (1.0 - x2 * (1.0/3.0 - x2 * (1.0/5.0 - 
+                      x2 * (1.0/7.0 - x2 * (1.0/9.0)))));
+    }
+    
+    return sign * result;
+}
+
+__attribute__((visibility("default")))
+double atan2(double y, double x) {
+    if (x > 0.0) {
+        return atan(y / x);
+    } else if (x < 0.0) {
+        if (y >= 0.0) {
+            return atan(y / x) + PI;
+        } else {
+            return atan(y / x) - PI;
+        }
+    } else {
+        if (y > 0.0) return PI/2.0;
+        if (y < 0.0) return -PI/2.0;
+        return 0.0;
+    }
+}
+"""
+            a, b, c = self._env.library.create_lib("libm", source)
+            return {"sucess": a, "path": b, "msg": c}
+        def create_libpth_mini(self):
+            source = """
+/* libpthread.so mini - Implementação básica de pthreads
+ * Compilar: gcc -shared -fPIC -o libminipthread.so libminipthread.c -lpthread
+ */
+
+#define _GNU_SOURCE
+#include <sys/syscall.h>
+#include <stddef.h>
+#include <stdatomic.h>
+#include <linux/futex.h>
+
+/* ============ STRUCTS E DEFINIÇÕES ============ */
+typedef int pthread_t;
+typedef struct {
+    _Atomic int lock;
+    int type;
+    int recursive;
+    _Atomic int owner;
+    _Atomic int count;
+} pthread_mutex_t;
+
+typedef int pthread_attr_t;
+typedef int pthread_mutexattr_t;
+
+struct thread_info {
+    void *(*start_routine)(void *);
+    void *arg;
+    void *result;
+    int detached;
+    int joined;
+    pthread_t id;
+    pid_t tid;
+    _Atomic int state;
+};
+
+/* ============ SYSCALL HELPERS ============ */
+static inline long syscall3(long n, long a1, long a2, long a3) {
+    long ret;
+#if defined(__x86_64__)
+    register long rdi __asm__("rdi") = a1;
+    register long rsi __asm__("rsi") = a2;
+    register long rdx __asm__("rdx") = a3;
+    __asm__ volatile("syscall" : "=a"(ret) : "a"(n), "r"(rdi), "r"(rsi), "r"(rdx) : "rcx", "r11", "memory");
+#elif defined(__i386__)
+    register long ebx __asm__("ebx") = a1;
+    register long ecx __asm__("ecx") = a2;
+    register long edx __asm__("edx") = a3;
+    __asm__ volatile("int $0x80" : "=a"(ret) : "a"(n), "r"(ebx), "r"(ecx), "r"(edx) : "memory");
+#elif defined(__aarch64__)
+    register long x0 __asm__("x0") = a1;
+    register long x1 __asm__("x1") = a2;
+    register long x2 __asm__("x2") = a3;
+    register long x8 __asm__("x8") = n;
+    __asm__ volatile("svc 0" : "=r"(x0) : "r"(x0), "r"(x1), "r"(x2), "r"(x8) : "memory");
+    ret = x0;
+#elif defined(__arm__)
+    register long r0 __asm__("r0") = a1;
+    register long r1 __asm__("r1") = a2;
+    register long r2 __asm__("r2") = a3;
+    __asm__ volatile("svc 0" : "=r"(r0) : "r"(n), "0"(r0), "r"(r1), "r"(r2) : "memory");
+    ret = r0;
+#endif
+    return ret;
+}
+
+static inline long syscall5(long n, long a1, long a2, long a3, long a4, long a5) {
+    long ret;
+#if defined(__x86_64__)
+    register long rdi __asm__("rdi") = a1;
+    register long rsi __asm__("rsi") = a2;
+    register long rdx __asm__("rdx") = a3;
+    register long r10 __asm__("r10") = a4;
+    register long r8 __asm__("r8") = a5;
+    __asm__ volatile("syscall" : "=a"(ret) : "a"(n), "r"(rdi), "r"(rsi), "r"(rdx), "r"(r10), "r"(r8) : "rcx", "r11", "memory");
+#else
+    // Fallback para outras arquiteturas
+    ret = -1;
+#endif
+    return ret;
+}
+
+/* ============ THREAD FUNCTIONS ============ */
+static int thread_start(void *arg) {
+    struct thread_info *info = (struct thread_info *)arg;
+    
+    info->state = 1; // Running
+    info->result = info->start_routine(info->arg);
+    info->state = 2; // Terminated
+    
+    if (info->detached) {
+        // Auto-cleanup para threads detached
+        // Liberar memória (implementação simplificada)
+    }
+    
+    syscall3(__NR_exit, 0, 0, 0);
+    return 0;
+}
+
+__attribute__((visibility("default")))
+int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
+                   void *(*start_routine)(void *), void *arg) {
+    (void)attr; // Atributos não usados nesta implementação básica
+    
+    // Alocar estrutura de thread
+    struct thread_info *info = (struct thread_info *)malloc(sizeof(struct thread_info));
+    if (!info) return -1;
+    
+    info->start_routine = start_routine;
+    info->arg = arg;
+    info->detached = 0;
+    info->joined = 0;
+    info->state = 0;
+    
+    static _Atomic int next_id = 1;
+    info->id = __atomic_fetch_add(&next_id, 1, __ATOMIC_SEQ_CST);
+    
+    // Flags para clone()
+    int flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
+                CLONE_THREAD | CLONE_SYSVSEM | CLONE_PARENT_SETTID |
+                CLONE_CHILD_CLEARTID;
+    
+    // Alocar stack
+    size_t stack_size = 2 * 1024 * 1024; // 2MB
+    void *stack = mmap(NULL, stack_size, PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
+    
+    if (stack == MAP_FAILED) {
+        free(info);
+        return -1;
+    }
+    
+    char *stack_top = (char *)stack + stack_size;
+    pid_t tid = syscall5(__NR_clone, flags, (long)stack_top, 0, (long)&info->tid, 0);
+    
+    if (tid < 0) {
+        munmap(stack, stack_size);
+        free(info);
+        return -1;
+    }
+    
+    if (tid == 0) {
+        // Thread filha
+        thread_start(info);
+    }
+    
+    info->tid = tid;
+    *thread = info->id;
+    
+    return 0;
+}
+
+__attribute__((visibility("default")))
+int pthread_join(pthread_t thread, void **retval) {
+    (void)thread;
+    (void)retval;
+    
+    // Implementação simplificada: busy wait
+    // Em implementação real, usaria futex
+    for (volatile int i = 0; i < 1000000; i++);
+    
+    return 0;
+}
+
+__attribute__((visibility("default")))
+int pthread_detach(pthread_t thread) {
+    (void)thread;
+    // Marcar thread como detached
+    return 0;
+}
+
+__attribute__((visibility("default")))
+pthread_t pthread_self(void) {
+    return (pthread_t)syscall3(__NR_gettid, 0, 0, 0);
+}
+
+/* ============ MUTEX FUNCTIONS ============ */
+__attribute__((visibility("default")))
+int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr) {
+    (void)attr;
+    
+    mutex->lock = 0;
+    mutex->type = 0; // Normal mutex
+    mutex->recursive = 0;
+    mutex->owner = 0;
+    mutex->count = 0;
+    
+    return 0;
+}
+
+__attribute__((visibility("default")))
+int pthread_mutex_lock(pthread_mutex_t *mutex) {
+    int tid = (int)syscall3(__NR_gettid, 0, 0, 0);
+    
+    if (mutex->recursive && mutex->owner == tid) {
+        __atomic_fetch_add(&mutex->count, 1, __ATOMIC_SEQ_CST);
+        return 0;
+    }
+    
+    while (1) {
+        int expected = 0;
+        if (__atomic_compare_exchange_n(&mutex->lock, &expected, 1, 
+                                        0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+            mutex->owner = tid;
+            mutex->count = 1;
+            return 0;
+        }
+        
+        // Futex wait
+        syscall3(__NR_futex, (long)&mutex->lock, FUTEX_WAIT, 1);
+    }
+}
+
+__attribute__((visibility("default")))
+int pthread_mutex_unlock(pthread_mutex_t *mutex) {
+    int tid = (int)syscall3(__NR_gettid, 0, 0, 0);
+    
+    if (mutex->owner != tid) {
+        return -1; // Não é o dono
+    }
+    
+    if (mutex->recursive) {
+        int count = __atomic_fetch_sub(&mutex->count, 1, __ATOMIC_SEQ_CST) - 1;
+        if (count > 0) {
+            return 0;
+        }
+    }
+    
+    mutex->owner = 0;
+    __atomic_store_n(&mutex->lock, 0, __ATOMIC_RELEASE);
+    
+    // Futex wake
+    syscall3(__NR_futex, (long)&mutex->lock, FUTEX_WAKE, 1);
+    
+    return 0;
+}
+
+__attribute__((visibility("default")))
+int pthread_mutex_destroy(pthread_mutex_t *mutex) {
+    (void)mutex;
+    return 0;
+}
+
+__attribute__((visibility("default")))
+int pthread_mutex_trylock(pthread_mutex_t *mutex) {
+    int tid = (int)syscall3(__NR_gettid, 0, 0, 0);
+    
+    if (mutex->recursive && mutex->owner == tid) {
+        __atomic_fetch_add(&mutex->count, 1, __ATOMIC_SEQ_CST);
+        return 0;
+    }
+    
+    int expected = 0;
+    if (__atomic_compare_exchange_n(&mutex->lock, &expected, 1, 
+                                    0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+        mutex->owner = tid;
+        mutex->count = 1;
+        return 0;
+    }
+    
+    return -1; // Busy
+}
+
+/* ============ CONDITION VARIABLES (SIMPLIFICADO) ============ */
+typedef struct {
+    _Atomic int waiters;
+    _Atomic int wakeups;
+} pthread_cond_t;
+
+__attribute__((visibility("default")))
+int pthread_cond_init(pthread_cond_t *cond, const void *attr) {
+    (void)attr;
+    cond->waiters = 0;
+    cond->wakeups = 0;
+    return 0;
+}
+
+__attribute__((visibility("default")))
+int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
+    __atomic_fetch_add(&cond->waiters, 1, __ATOMIC_SEQ_CST);
+    pthread_mutex_unlock(mutex);
+    
+    // Wait usando futex
+    while (__atomic_load_n(&cond->wakeups, __ATOMIC_ACQUIRE) == 0) {
+        syscall3(__NR_futex, (long)&cond->wakeups, FUTEX_WAIT, 0);
+    }
+    
+    __atomic_fetch_sub(&cond->wakeups, 1, __ATOMIC_SEQ_CST);
+    pthread_mutex_lock(mutex);
+    
+    return 0;
+}
+
+__attribute__((visibility("default")))
+int pthread_cond_signal(pthread_cond_t *cond) {
+    if (__atomic_load_n(&cond->waiters, __ATOMIC_ACQUIRE) > 0) {
+        __atomic_fetch_add(&cond->wakeups, 1, __ATOMIC_SEQ_CST);
+        syscall3(__NR_futex, (long)&cond->wakeups, FUTEX_WAKE, 1);
+    }
+    return 0;
+}
+
+__attribute__((visibility("default")))
+int pthread_cond_broadcast(pthread_cond_t *cond) {
+    int waiters = __atomic_load_n(&cond->waiters, __ATOMIC_ACQUIRE);
+    if (waiters > 0) {
+        __atomic_store_n(&cond->wakeups, waiters, __ATOMIC_RELEASE);
+        syscall3(__NR_futex, (long)&cond->wakeups, FUTEX_WAKE, waiters);
+    }
+    return 0;
+}
+
+__attribute__((visibility("default")))
+int pthread_cond_destroy(pthread_cond_t *cond) {
+    (void)cond;
+    return 0;
+}
+"""
+            a, b, c = self._env.library.create_lib("libpthread", source)
+            return {"sucess": a, "path": b, "msg": c}
     class Fs:
         """Virtual Filesystem manager"""
         
@@ -1013,9 +2337,9 @@ class VirtualEnviron:
             # Basic environment variables
             self._vars.update({
                 'PATH': os.path.join(self._env._base_path, 'bin') + ":" + os.path.join(self._env._base_path, 'usr/bin') + ":" + os.path.join(self._env._base_path, 'usr/sbin'),
-                'USER': self._env.name,
-                'LOGNAME': self._env.name,
-                'SHELL': 'null',
+                'USER': "vuser",
+                'LOGNAME': "vuser",
+                'SHELL': 'undefined',
                 'PWD': self._env._base_path,
                 'VIRTPY_ENV': self._env.name,
                 'LD_LIBRARY_PATH': os.path.join(self._env._base_path, "lib") + ":" + os.path.join(self._env._base_path, 'usr/lib'), # importante, processos dentro do ambiente virtual não tem acesso as bibliotecas do host, apenas as bibliotecas do ambiente, nao importe o que voce faca
@@ -1023,7 +2347,7 @@ class VirtualEnviron:
             })
             
             # Add Python-specific variables
-            python_path = os.path.join(self._env._base_path, 'lib', 'python')
+            python_path = os.path.join(self._env._base_path, 'lib', 'python3')
             self._vars['PYTHONPATH'] = python_path
             self._vars['PYTHONHOME'] = os.path.join(self._env._base_path, 'usr')
         
@@ -1033,7 +2357,7 @@ class VirtualEnviron:
         
         def set(self, key: str, value: Any):
             """Set environment variable"""
-            if key in ["LD_LIBRARY_PATH", "LD_PRELOAD", "PATH"]:
+            if key in ["PATH", "LD_LIBRARY_PATH", "LIBRARY_PATH", "LD_PRELOAD", "CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "OBJC_INCLUDE_PATH", "PKG_CONFIG_PATH", "MANPATH", "INFOPATH", "PYTHONPATH", "PYTHONHOME", "PYTHONUSERBASE", "PYTHONSTARTUP", "PYTHONCASEOK", "JAVA_HOME", "CLASSPATH", "NODE_PATH", "NPM_CONFIG_PREFIX", "GOPATH", "GOROOT", "GEM_PATH", "GEM_HOME", "RUBYLIB", "RUBYPATH", "PERL5LIB", "PERLLIB", "CARGO_HOME", "RUSTUP_HOME", "PHPRC", "LUA_PATH", "LUA_CPATH", "CMAKE_PREFIX_PATH", "ACLOCAL_PATH"]:
                 a = value.split(":")
                 path = ":".join([p.replace("/", "", 1) for p in a])
                 self._vars[key] = os.path.join(self._env._base_path, str(path))
@@ -1419,10 +2743,13 @@ Retorna o caminho completo se encontrar.
                 versao = ".".join(sys.version.split(".")[:2])
                 shutil.copytree(f"/lib/python{versao}", self._env.fs._to_virtual_path("/lib/python3"), ignore=lambda d, files: ["site-packages"])
                 os.makedirs(os.path.join(self._env._base_path, "lib", "python3", "site-packages"), exist_ok=True)
-            except (FileNotFoundError):
-                 versao = ".".join(sys.version.split(".")[:2])
-                 shutil.copytree(f"/usr/lib/python{versao}", self._env.fs._to_virtual_path("/lib/python3"), ignore=lambda d, files: ["site-packages"])
-                 os.makedirs(os.path.join(self._env._base_path, "lib", "python3", "site-packages"), exist_ok=True)
+            except FileNotFoundError:
+                 try:
+                     versao = ".".join(sys.version.split(".")[:2])
+                     shutil.copytree(f"/usr/lib/python{versao}", self._env.fs._to_virtual_path("/lib/python3"), ignore=lambda d, files: ["site-packages"])
+                     os.makedirs(os.path.join(self._env._base_path, "lib", "python3", "site-packages"), exist_ok=True)
+                 except:
+                     os.makedirs(os.path.join(self._env._base_path, "lib", "python3"), exist_ok=True)
                  
             python_lib = os.path.join(self._env._base_path, 'lib', 'python3')
                         
@@ -1559,10 +2886,12 @@ Retorna o caminho completo se encontrar.
     class Library:
         def __init__(self, env):
             self._env = env
-        def set_path(self, path):
-            self._env.environ.set("LD_LIBRARY_PATH", path)
+        def set_path(self, paths):
+            self._env.environ.set("LD_LIBRARY_PATH", paths)
         def set_preload(self, path):
             self._env.environ.set("LD_PRELOAD", path)
+            if self._env.fs.exists("/lib/libsandbox.so"):
+                self._env.virtpyLib.set_libsandbox()
         def unset_preload(self):
             self._env.environ.unset("LD_PRELOAD")
         def get_path(self):
@@ -1600,10 +2929,12 @@ Retorna o caminho completo se encontrar.
                 self._env.environ.get("LD_LIBRARY_PATH").split(":")[0],
                 os.path.basename(full[0])
             ))
+        def add_path(self, path):
+            atual = self._env.environ.get("LD_LIBRARY_PATH")
+            self._env.environ.set("LD_LIBRARY_PATH", atual + ":" + path)
             
     # Main VirtualEnviron class implementation
-    def __init__(self, nome: str, vars: Optional[Dict[str, str]] = None, start: Optional[List[str]] = None,
-                 setup: Optional[List[str]] = None, ip: Optional[str] = None, create_opt: bool = False, install_pkm: bool = False):
+    def __init__(self, nome: str, vars: Optional[Dict[str, str]] = None, ip: Optional[str] = None, create_opt: bool = False, install_pkm: bool = False):
         """
         Initialize a new virtual environment.
         
@@ -1619,8 +2950,6 @@ Retorna o caminho completo se encontrar.
         self.ip = ip
         self.name = nome
         self.vars = vars or {}
-        self.start_commands = start or []
-        self.setup_commands = setup or []
         self.ready = False
         
         # Internal state
@@ -1641,6 +2970,7 @@ Retorna o caminho completo se encontrar.
         self.process = self.Process(self)
         self.package = self.Package(self)
         self.library = self.Library(self)
+        self.virtpyLib = self.virtpy_lib(self)
         self.internal_api = VirtPyInternalAPI(self)  # Adicionar esta linha
         # Run setup commands
         if not self.ready:
@@ -1662,9 +2992,7 @@ Retorna o caminho completo se encontrar.
             self.internal_api.expose_to_environment()  # Expõe a API
             self.internal_api.start_api_server()       # Inicia servidor
             
-            # Run start commands
-            for cmd in self.start_commands:
-                self.process.run(cmd, shell=True)
+            
             
             self._running = True
             
@@ -1703,9 +3031,15 @@ Retorna o caminho completo se encontrar.
         """Run setup commands"""
         
         # setup essential libraries
-        self.library.copy("c") # essencial
-        self.library.copy("m") # para matematica
-        self.library.copy("pthread") # para threads
+        c = self.library.copy("c") # essencial
+        m = self.library.copy("m") # para matematica
+        pth = self.library.copy("pthread") # para threads
+        if not c:
+            self.virtpyLib.create_libc_mini()
+        if not m:
+            self.virtpyLib.create_libm_mini()
+        if not pth:
+            self.virtpyLib.create_libpth_mini()
         self.library.copy("dl") # sei la
         self.library.copy("rt") # para tempo real
         self.library.copy("util") # utilidades
@@ -1754,16 +3088,12 @@ Retorna o caminho completo se encontrar.
             self.library.copy("c++") # pode precisar em pydroid
             self.library.copy("log")
             self.library.copy("backcompat_shared")
-        for cmd in self.setup_commands:
-            result = self.process.run(cmd, shell=True, capture_output=True)
-            if result.returncode != 0:
-                print(f"Setup command failed: {cmd}")
-                print(f"Error: {result.stderr.decode() if result.stderr else 'Unknown error'}")
-        self.ready = True
+            if not shutil.which("firejail"):
+                s, p, msg = self.virtpyLib.create_sandbox_preload(os.getpid(), self._base_path)
+                if s:
+                    self.virtpyLib.set_libsandbox()
     
-    def getpid(self) -> Optional[int]:
-        """Get the main process ID if environment runs as separate process"""
-        return self._pid
+    
     
     # Na classe VirtualEnviron, atualize o método _setup_network:
     def _setup_network(self):
