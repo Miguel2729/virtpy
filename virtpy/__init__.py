@@ -1,5 +1,7 @@
+
+
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.7.2
+Core implementation of VirtPy - Complete Virtual Environments, v2.7.3
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -803,11 +805,11 @@ class VirtualEnviron:
         def _setup_fs(self):
             """Initialize virtual filesystem structure"""
             os.makedirs(self._base_path, exist_ok=True)
-            dirs = ["bin", "lib", "usr/bin", "usr/sbin"] 
+            dirs = ["bin", "lib", "usr/bin", "usr/sbin", "usr/lib"] 
             for d in dirs:
                 os.makedirs(os.path.join(self._base_path, d), exist_ok=True)
             if self._env.create_opt:
-                os.makedirs(os.path.join(self._base_path, "opt"))
+                os.makedirs(os.path.join(self._base_path, "opt"), exist_ok = True)
             
             
             
@@ -818,7 +820,7 @@ class VirtualEnviron:
                 self._install_package_manager
         def _install_sh(self):
             if shutil.which("sh"): 
-                self.import_from_host(shutil.which("sh"), f'{self._env.environ.get("PATH", "/bin").split(":")[0]}/sh')
+                self.import_from_host(shutil.which("sh"), '/bin/sh')
         def _install_package_manager(self):
             pkms = ["apt", "apk", "pkg", "pacman", "dnf"]
             for pkm in pkms:
@@ -1012,18 +1014,19 @@ class VirtualEnviron:
             """Load initial environment variables"""
             # Basic environment variables
             self._vars.update({
-                'PATH': os.path.join(self._env._base_path, 'bin'),
+                'PATH': os.path.join(self._env._base_path, 'bin') + ":" + os.path.join(self._env._base_path, 'usr/bin') + ":" + os.path.join(self._env._base_path, 'usr/sbin'),
                 'USER': self._env.name,
                 'LOGNAME': self._env.name,
                 'SHELL': 'null',
                 'PWD': self._env._base_path,
                 'VIRTPY_ENV': self._env.name,
-                'LD_LIBRARY_PATH': os.path.join(self._env._base_path, "lib"), # importante, processos dentro do ambiente virtual não tem acesso as bibliotecas do host, apenas as bibliotecas do ambiente, nao importe o que voce faca
+                'LD_LIBRARY_PATH': os.path.join(self._env._base_path, "lib") + ":" + os.path.join(self._env._base_path, 'usr/lib'), # importante, processos dentro do ambiente virtual não tem acesso as bibliotecas do host, apenas as bibliotecas do ambiente, nao importe o que voce faca
                 'VIRTPY_BASE': self._env._base_path,
+                "VIRTPY_VERSION": "2.7.3"
             })
             
             # Add Python-specific variables
-            python_path = os.path.join(self._env._base_path, 'lib', 'python')
+            python_path = os.path.join(self._env._base_path, 'lib', 'python3')
             self._vars['PYTHONPATH'] = python_path
             self._vars['PYTHONHOME'] = os.path.join(self._env._base_path, 'usr')
         
@@ -2103,6 +2106,13 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
+
+
+
+
+
+
+
 
 
 
