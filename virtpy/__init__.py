@@ -1,7 +1,5 @@
-
-
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.7.3
+Core implementation of VirtPy - Complete Virtual Environments, v2.7.2
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -1022,11 +1020,10 @@ class VirtualEnviron:
                 'VIRTPY_ENV': self._env.name,
                 'LD_LIBRARY_PATH': os.path.join(self._env._base_path, "lib") + ":" + os.path.join(self._env._base_path, 'usr/lib'), # importante, processos dentro do ambiente virtual não tem acesso as bibliotecas do host, apenas as bibliotecas do ambiente, nao importe o que voce faca
                 'VIRTPY_BASE': self._env._base_path,
-                "VIRTPY_VERSION": "2.7.3"
             })
             
             # Add Python-specific variables
-            python_path = os.path.join(self._env._base_path, 'lib', 'python3')
+            python_path = os.path.join(self._env._base_path, 'lib', 'python')
             self._vars['PYTHONPATH'] = python_path
             self._vars['PYTHONHOME'] = os.path.join(self._env._base_path, 'usr')
         
@@ -1600,7 +1597,7 @@ Retorna o caminho completo se encontrar.
                 full = glob.glob(f"{path}/lib{lib}.so*")
                 if full: return shutil.copy(full[0], os.path.join(
                 self._env._base_path, 
-                self._env.environ.get("LD_LIBRARY_PATH"),
+                self._env.environ.get("LD_LIBRARY_PATH").split(":")[0],
                 os.path.basename(full[0])
             ))
             
@@ -2106,11 +2103,6 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
-
-
-
-
-
 
 
 
