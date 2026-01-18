@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.7.1
+Core implementation of VirtPy - Complete Virtual Environments, v2.7.2
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -1136,7 +1136,6 @@ Retorna o caminho completo se encontrar.
 
             # Prepare environment
             process_env = self._env.environ.to_dict()
-            process_env.update(self._env.environ.to_dict())
             if env:
                 process_env.update(env)
 
@@ -1299,7 +1298,6 @@ Retorna o caminho completo se encontrar.
 
 
 
-
         def _create_preexec_fn(self, env_vars):
             """Create pre-execution function for process isolation"""
             def preexec():
@@ -1417,10 +1415,11 @@ Retorna o caminho completo se encontrar.
         
         def _setup_python_path(self):
             """Setup Python module search path for the environment"""
-            # Create Python lib directory
-            python_lib = os.path.join(self._env._base_path, 'lib', 'python')
-            os.makedirs(python_lib, exist_ok=True)
-            
+            versao = ".".join(sys.version.split(".")[:2])
+            shutil.copytree(f"/lib/python{versao}", self._env.fs._to_virtual_path("/lib/python3"), ignore=["site-packages"])
+            os.makedirs(os.path.join(self._env._base_path, "lib", "python3", "site-packages"), exist_ok=True)
+            python_lib = os.path.join(self._env._base_path, 'lib', 'python3')
+                        
             # Add to sys.path for processes in this environment
             self._env.environ.set('PYTHONPATH', python_lib)
         
@@ -1446,7 +1445,7 @@ Retorna o caminho completo se encontrar.
                 return self._modules[module_name]
             
             # Try to import from virtual Python path
-            python_lib = os.path.join(self._env._base_path, 'lib', 'python')
+            python_lib = os.path.join(self._env._base_path, 'lib', 'python3')
             
             # Convert module name to file path
             module_path = module_name.replace('.', '/')
@@ -2098,6 +2097,9 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
+
+
+
 
 
 
