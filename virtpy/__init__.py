@@ -1417,10 +1417,12 @@ Retorna o caminho completo se encontrar.
             """Setup Python module search path for the environment"""
             try:
                 versao = ".".join(sys.version.split(".")[:2])
-                shutil.copytree(f"/lib/python{versao}", self._env.fs._to_virtual_path("/lib/python3"), ignore=["site-packages"])
+                shutil.copytree(f"/lib/python{versao}", self._env.fs._to_virtual_path("/lib/python3"), ignore=lambda d, files: ["site-packages"])
                 os.makedirs(os.path.join(self._env._base_path, "lib", "python3", "site-packages"), exist_ok=True)
-            except (FileNotFoundError, PermissionError):
-                 os.makedirs(os.path.join(self._env._base_path, "lib", "python3"))
+            except (FileNotFoundError):
+                 versao = ".".join(sys.version.split(".")[:2])
+                 shutil.copytree(f"/usr/lib/python{versao}", self._env.fs._to_virtual_path("/lib/python3"), ignore=lambda d, files: ["site-packages"])
+                 os.makedirs(os.path.join(self._env._base_path, "lib", "python3", "site-packages"), exist_ok=True)
                  
             python_lib = os.path.join(self._env._base_path, 'lib', 'python3')
                         
