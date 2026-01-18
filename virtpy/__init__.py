@@ -1415,9 +1415,13 @@ Retorna o caminho completo se encontrar.
         
         def _setup_python_path(self):
             """Setup Python module search path for the environment"""
-            versao = ".".join(sys.version.split(".")[:2])
-            shutil.copytree(f"/lib/python{versao}", self._env.fs._to_virtual_path("/lib/python3"), ignore=["site-packages"])
-            os.makedirs(os.path.join(self._env._base_path, "lib", "python3", "site-packages"), exist_ok=True)
+            try:
+                versao = ".".join(sys.version.split(".")[:2])
+                shutil.copytree(f"/lib/python{versao}", self._env.fs._to_virtual_path("/lib/python3"), ignore=["site-packages"])
+                os.makedirs(os.path.join(self._env._base_path, "lib", "python3", "site-packages"), exist_ok=True)
+            except (FileNotFoundError, PermissionError):
+                 os.makedirs(os.path.join(self._env._base_path, "lib", "python3"))
+                 
             python_lib = os.path.join(self._env._base_path, 'lib', 'python3')
                         
             # Add to sys.path for processes in this environment
@@ -2097,16 +2101,6 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
-
-
-
-
-
-
-
-
-
-
 
 
 
