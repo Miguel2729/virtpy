@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.8.0
+Core implementation of VirtPy - Complete Virtual Environments, v2.8.1
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -2351,7 +2351,7 @@ int pthread_cond_destroy(pthread_cond_t *cond) {
             # Add Python-specific variables
             python_path = os.path.join(self._env._base_path, 'lib', 'python3')
             self._vars['PYTHONPATH'] = python_path
-            self._vars['PYTHONHOME'] = os.path.join(self._env._base_path, 'usr')
+            # não definimos PYTHONHOME para ele reconhecer python3 como pasta valida
         
         def get(self, key: str, default: Any = None) -> Any:
             """Get environment variable"""
@@ -2934,7 +2934,10 @@ Retorna o caminho completo se encontrar.
         def add_path(self, path):
             atual = self._env.environ.get("LD_LIBRARY_PATH")
             self._env.environ.set("LD_LIBRARY_PATH", atual + ":" + path)
-            
+     
+
+
+
     # Main VirtualEnviron class implementation
     def __init__(self, nome: str, vars: Optional[Dict[str, str]] = None, ip: Optional[str] = None, create_opt: bool = False, install_pkm: bool = False):
         """
@@ -2954,8 +2957,10 @@ Retorna o caminho completo se encontrar.
         self.vars = vars or {}
         self.ready = False
         
+        
         # Internal state
         self._base_path = os.path.join(tempfile.gettempdir(), f'virtpy_{self.name}_{uuid.uuid4().hex[:8]}')
+       
         
         self._running = False
         self._pid = None
@@ -2963,6 +2968,7 @@ Retorna o caminho completo se encontrar.
         self._other_environments = {}
         
         # Initialize sub-managers
+        
         self.environ = self.Environ(self)
         if vars:
             self.environ.update(vars)
@@ -2985,11 +2991,13 @@ Retorna o caminho completo se encontrar.
                 return
             
             # Create the environment directory if it doesn't exist
+           
             os.makedirs(self._base_path, exist_ok=True)
             
             # Setup network namespace if IP is provided
             if self.ip and PYROUTE2_AVAILABLE:
                 self._setup_network()
+            
             
             self.internal_api.expose_to_environment()  # Expõe a API
             self.internal_api.start_api_server()       # Inicia servidor
@@ -3007,8 +3015,10 @@ Retorna o caminho completo se encontrar.
             if not self._running:
                 return
             
+            
             self.internal_api.stop_api_server()  # Adicionar esta linha
             # Kill all processes
+            
             self.process.killall()
             
             # Cleanup network
@@ -3017,14 +3027,16 @@ Retorna o caminho completo se encontrar.
             
             # Remove temporary directory
             try:
+               
                 if not root_backup: shutil.rmtree(self._base_path, ignore_errors=True)
             except:
                 pass
-            
+            if self.debug: print('[DEBUG] stoped')
             self._running = False
     
     def restart(self):
         """Restart the virtual environment"""
+        
         self.shutdown()
         time.sleep(1)  # Brief pause
         self.start()
@@ -3408,7 +3420,7 @@ Retorna o caminho completo se encontrar.
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         
-        self.shutdown(root_backup=False)
+        self.shutdown()
     
         # Não suprime exceções
         return False
@@ -3428,7 +3440,10 @@ Retorna o caminho completo se encontrar.
             self.package.uninstall(p)
         for f in self.fs.listdir("/"):
             self.fs.remove(f"/{f}")
-        self.fs._setup_fs()
+        # recria lib e bin
+        self.fs.mkdir("/bin")
+        self.fs.mkdir('/lib')
+        self._install_python()
         
         self.ready = False
         time.sleep(1)
