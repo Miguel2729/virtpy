@@ -3031,7 +3031,7 @@ Retorna o caminho completo se encontrar.
                 if not root_backup: shutil.rmtree(self._base_path, ignore_errors=True)
             except:
                 pass
-            if self.debug: print('[DEBUG] stoped')
+            
             self._running = False
     
     def restart(self):
