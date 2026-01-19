@@ -59,7 +59,7 @@ if subprocess.run(["which", "firejail"]).returncode == 0:
     exit()
 
 # Try to install
-pms = ["apt", "apt-get", "dnf", "yum", "pacman", "zypper", "apk"]
+pms = ["apt", "apt-get", "dnf", "yum"]
 
 for pm in pms:
     if subprocess.run(["which", pm]).returncode == 0:
@@ -1035,6 +1035,8 @@ static inline long syscall1(long n, long a1) {
 #endif
     return ret;
 }
+
+
 
 static inline long syscall2(long n, long a1, long a2) {
     long ret;
@@ -3406,7 +3408,7 @@ Retorna o caminho completo se encontrar.
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         
-        self.shutdown()
+        self.shutdown(root_backup=False)
     
         # Não suprime exceções
         return False
@@ -3426,18 +3428,10 @@ Retorna o caminho completo se encontrar.
             self.package.uninstall(p)
         for f in self.fs.listdir("/"):
             self.fs.remove(f"/{f}")
-        # recria lib e bin
-        self.fs.mkdir("/bin")
-        self.fs.mkdir('/lib')
-        self._install_python()
+        self.fs._setup_fs()
         
         self.ready = False
         time.sleep(1)
-
-
-
-
-
 
 
 
