@@ -2359,7 +2359,7 @@ int pthread_cond_destroy(pthread_cond_t *cond) {
         
         def set(self, key: str, value: Any):
             """Set environment variable"""
-            if key in ["PATH", "LD_LIBRARY_PATH", "LIBRARY_PATH", "LD_PRELOAD", "CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "OBJC_INCLUDE_PATH", "PKG_CONFIG_PATH", "MANPATH", "INFOPATH", "PYTHONPATH", "PYTHONHOME", "PYTHONUSERBASE", "PYTHONSTARTUP", "PYTHONCASEOK", "JAVA_HOME", "CLASSPATH", "NODE_PATH", "NPM_CONFIG_PREFIX", "GOPATH", "GOROOT", "GEM_PATH", "GEM_HOME", "RUBYLIB", "RUBYPATH", "PERL5LIB", "PERLLIB", "CARGO_HOME", "RUSTUP_HOME", "PHPRC", "LUA_PATH", "LUA_CPATH", "CMAKE_PREFIX_PATH", "ACLOCAL_PATH"]:
+            if key in ["PATH", "LD_LIBRARY_PATH", "LIBRARY_PATH", "LD_PRELOAD", "CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "OBJC_INCLUDE_PATH", "PKG_CONFIG_PATH", "MANPATH", "INFOPATH", "PYTHONPATH", "PYTHONHOME", "PYTHONUSERBASE", "PYTHONSTARTUP", "PYTHONCASEOK", "JAVA_HOME", "CLASSPATH", "NODE_PATH", "NPM_CONFIG_PREFIX", "GOPATH", "GOROOT", "GEM_PATH", "GEM_HOME", "RUBYLIB", "RUBYPATH", "PERL5LIB", "PERLLIB", "CARGO_HOME", "RUSTUP_HOME", "PHPRC", "LUA_PATH", "LUA_CPATH", "CMAKE_PREFIX_PATH", "ACLOCAL_PATH", "ANDROID_SDK_ROOT", "ANDROID_HOME", "ANDROID_NDK_ROOT", "ANDROID_NDK_HOME", "GRADLE_USER_HOME"]:
                 a = value.split(":")
                 path = ":".join([p.replace("/", "", 1) for p in a])
                 self._vars[key] = os.path.join(self._env._base_path, str(path))
@@ -2373,7 +2373,8 @@ int pthread_cond_destroy(pthread_cond_t *cond) {
         
         def update(self, vars_dict: Dict[str, Any]):
             """Update multiple environment variables"""
-            self._vars.update({k: str(v) for k, v in vars_dict.items()})
+            for a, b in vars_dict.items():
+                self.set(a, b)
         
         def items(self):
             """Get all environment variables as items"""
@@ -2397,7 +2398,9 @@ int pthread_cond_destroy(pthread_cond_t *cond) {
         def zero(self):
             self._vars = {}
         def replace(self, vars: Dict[str, str]):
-            self._vars = vars
+            self.zero()
+            for a, b in vars.items():
+                self.set(a, b)
         
         def load_from_file(self, path: str):
             """Load environment variables from file"""
