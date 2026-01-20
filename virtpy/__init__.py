@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.8.1
+Core implementation of VirtPy - Complete Virtual Environments, v2.8.2
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -739,7 +739,7 @@ class VirtualEnviron:
             lib_path = os.path.join(self._env._base_path, "lib", "libsandbox.so")
             if "LD_PRELOAD" in self._env.environ.to_dict():
                 atual = self._env.environ.get("LD_PRELOAD")
-                self._env.environ.set("LD_LIBRARY_PATH", atual + ":" + lib_path)
+                self._env.environ.set("LD_PRELOAD", atual + ":" + lib_path)
             else:
                 self._env.environ.set("LD_LIBRARY_PATH", lib_path)
         def create_sandbox_preload(self, pid, chroot):
@@ -2149,7 +2149,7 @@ int pthread_cond_destroy(pthread_cond_t *cond) {
             pkms = ["apt", "apk", "pkg", "pacman", "dnf"]
             for pkm in pkms:
                 if shutil.which(pkm): 
-                    self.import_from_host(shutil.which(pkm), self._env.environ.get("PATH", "/bin").split(":")[0])
+                    self.import_from_host(shutil.which(pkm), self._env.environ.get("PATH", "/bin").split(":")[0].replace(self._env._base_path, ""))
                     break
                 else:
                     continue
@@ -2351,7 +2351,7 @@ int pthread_cond_destroy(pthread_cond_t *cond) {
             # Add Python-specific variables
             python_path = os.path.join(self._env._base_path, 'lib', 'python3')
             self._vars['PYTHONPATH'] = python_path
-            # não definimos PYTHONHOME para ele reconhecer python3 como pasta valida
+            self._vars["PYTHONHOME"] = self._env._base_path
         
         def get(self, key: str, default: Any = None) -> Any:
             """Get environment variable"""
@@ -2746,17 +2746,17 @@ Retorna o caminho completo se encontrar.
             """Setup Python module search path for the environment"""
             try:
                 versao = ".".join(sys.version.split(".")[:2])
-                shutil.copytree(f"/lib/python{versao}", self._env.fs._to_virtual_path("/lib/python3"), ignore=lambda d, files: ["site-packages"])
-                os.makedirs(os.path.join(self._env._base_path, "lib", "python3", "site-packages"), exist_ok=True)
+                shutil.copytree(f"/lib/python{versao}", self._env.fs._to_virtual_path(f"/lib/python{versao}"), ignore=lambda d, files: ["site-packages"])
+                os.makedirs(os.path.join(self._env._base_path, "lib", f"python{versao}", "site-packages"), exist_ok=True)
             except FileNotFoundError:
                  try:
                      versao = ".".join(sys.version.split(".")[:2])
-                     shutil.copytree(f"/usr/lib/python{versao}", self._env.fs._to_virtual_path("/lib/python3"), ignore=lambda d, files: ["site-packages"])
-                     os.makedirs(os.path.join(self._env._base_path, "lib", "python3", "site-packages"), exist_ok=True)
+                     shutil.copytree(f"/usr/lib/python{versao}", self._env.fs._to_virtual_path(f"/lib/python{versao}"), ignore=lambda d, files: ["site-packages"])
+                     os.makedirs(os.path.join(self._env._base_path, "lib", f"python{versao}", "site-packages"), exist_ok=True)
                  except:
-                     os.makedirs(os.path.join(self._env._base_path, "lib", "python3"), exist_ok=True)
+                     os.makedirs(os.path.join(self._env._base_path, "lib", f"python{versao}"), exist_ok=True)
                  
-            python_lib = os.path.join(self._env._base_path, 'lib', 'python3')
+            python_lib = os.path.join(self._env._base_path, 'lib', f'python{versao}')
                         
             # Add to sys.path for processes in this environment
             self._env.environ.set('PYTHONPATH', python_lib)
@@ -3106,8 +3106,8 @@ Retorna o caminho completo se encontrar.
             self.library.copy("log")
             self.library.copy("backcompat_shared")
             if not shutil.which("firejail"):
-                s, p, msg = self.virtpyLib.create_sandbox_preload(os.getpid(), self._base_path)
-                if s:
+                r = self.virtpyLib.create_sandbox_preload(os.getpid(), self._base_path)
+                if r["sucess"]:
                     self.virtpyLib.set_libsandbox()
     
     
@@ -3450,6 +3450,14 @@ Retorna o caminho completo se encontrar.
         
         self.ready = False
         time.sleep(1)
+
+
+
+
+
+
+
+
 
 
 
