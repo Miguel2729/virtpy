@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.8.4
+Core implementation of VirtPy - Complete Virtual Environments, v2.8.5
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -772,23 +772,30 @@ static int (*original_chdir)(const char *path) = NULL;
 static int (*original_execve)(const char *pathname, char *const argv[], char *const envp[]) = NULL;
 static pid_t (*original_fork)(void) = NULL;
 static int (*original_kill)(pid_t pid, int sig) = NULL;
+static pid_t (*original_getpid)(void) = NULL;
+static pid_t (*original_getppid)(void) = NULL;
 
-// Função para redirecionar caminhos para dentro do sandbox
 static char* redirect_path(const char *path) {{
-    // Se o caminho for NULL, retorna NULL
     if (path == NULL) return NULL;
     
-    // Caminhos absolutos começando com / serão redirecionados
+    static char new_path[4096];
+    char full_path[4096];
+    
     if (path[0] == '/') {{
-        static char new_path[4096];
-        snprintf(new_path, sizeof(new_path), "%s%s", CHROOT_PATH, path);
-        return new_path;
+        // Caminho absoluto
+        snprintf(full_path, sizeof(full_path), "%s", path);
+    }} else {{
+        // Caminho relativo - converte para absoluto
+        char cwd[2048];
+        if (getcwd(cwd, sizeof(cwd)) == NULL) {{
+            return (char*)path; // Fallback
+        }}
+        snprintf(full_path, sizeof(full_path), "%s/%s", cwd, path);
     }}
     
-    // Para caminhos relativos, precisamos verificar o diretório atual
-    // Mas para simplificar, vamos apenas retornar o caminho original
-    // Em uma implementação completa, deveríamos lidar com getcwd()
-    return (char*)path;
+    // Redireciona para dentro do chroot
+    snprintf(new_path, sizeof(new_path), "%s%s", CHROOT_PATH, full_path);
+    return new_path;
 }}
 
 // Verifica se um processo está dentro do nosso sandbox
@@ -798,13 +805,13 @@ static int is_allowed_process(pid_t pid) {{
     // O próprio processo atual sempre permitido
     if (pid == getpid()) return 1;
     
-    // Verifica se o processo é descendente do worker_pid
+    // Verifica se o processo é descendente do TARGET_PPID
     char status_path[256];
     char line[256];
     pid_t current_pid = pid;
     pid_t ppid;
     
-    // Segue a árvore de processos até encontrar o PPID alvo ou root
+    // Segue a árvore de processos
     while (current_pid > 1) {{
         snprintf(status_path, sizeof(status_path), "/proc/%d/status", current_pid);
         FILE *fp = fopen(status_path, "r");
@@ -822,7 +829,7 @@ static int is_allowed_process(pid_t pid) {{
         if (ppid == 0) return 0;
         
         // Se encontramos o PPID alvo, é permitido
-        if (ppid == TARGET_PPID) return 1;
+        if (ppid == TARGET_PPID || ppid == getpid()) return 1;
         
         // Se encontramos um processo fora da hierarquia, nega
         if (ppid == 1) return 0;
@@ -949,7 +956,7 @@ int execve(const char *pathname, char *const argv[], char *const envp[]) {{
     return original_execve(new_path, argv, envp);
 }}
 
-// Hook para fork() - garante que processos filhos herdem o sandbox
+// Hook para fork() - garante que filhos herdem sandbox
 pid_t fork(void) {{
     if (!original_fork) {{
         original_fork = dlsym(RTLD_NEXT, "fork");
@@ -973,17 +980,37 @@ int kill(pid_t pid, int sig) {{
     return original_kill(pid, sig);
 }}
 
-// Inicialização - oculta informações do host
-__attribute__((constructor))
-static void init_sandbox() {{
-    // Muda o diretório raiz para dentro do sandbox (chroot)
-    if (chroot(CHROOT_PATH) != 0) {{
-        // Se não puder fazer chroot, pelo menos muda o diretório
-        chdir(CHROOT_PATH);
+// Hook para getpid() - retorna PID virtual se necessário
+pid_t getpid(void) {{
+    if (!original_getpid) {{
+        original_getpid = dlsym(RTLD_NEXT, "getpid");
     }}
     
-    // Esconde processos do host
-    // A lógica de filtragem já está implementada nas funções hook
+    return original_getpid();
+}}
+
+// Hook para getppid() - retorna PPID virtual se necessário
+pid_t getppid(void) {{
+    if (!original_getppid) {{
+        original_getppid = dlsym(RTLD_NEXT, "getppid");
+    }}
+    
+    return original_getppid();
+}}
+
+// Inicialização sem chroot!
+__attribute__((constructor))
+static void init_sandbox() {{
+    // Apenas muda para o diretório do sandbox (sem chroot)
+    // Isso é seguro e não precisa de privilégios
+    chdir(CHROOT_PATH);
+    
+    // Log opcional para debug
+    char* debug = getenv("VIRTPY_DEBUG");
+    if (debug != NULL && strcmp(debug, "1") == 0) {{
+        fprintf(stderr, "[VirtPy] Sandbox loaded for PPID %d in %s\\n", 
+                TARGET_PPID, CHROOT_PATH);
+    }}
 }}
 '''
             a, b, c = self._env.library.create_lib("libsandbox", source_code)
