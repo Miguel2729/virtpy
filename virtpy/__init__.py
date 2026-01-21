@@ -3505,7 +3505,8 @@ Retorna o caminho completo se encontrar.
             self.package.uninstall(p)
         for f in self.fs.listdir("/"):
             self.fs.remove(f"/{f}")
-        # recria lib e bin
+       
+        
         self.fs._setup_fs()
         
         self.ready = False
