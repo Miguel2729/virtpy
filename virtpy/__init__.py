@@ -779,75 +779,56 @@ static char* redirect_path(const char *path) {{
     if (path == NULL) return NULL;
     
     static char new_path[4096];
-    char cwd[2048];
     
-    // Obtém diretório atual REAL (fora do chroot)
-    if (getcwd(cwd, sizeof(cwd)) == NULL) {{
-        return (char*)path;
-    }}
-    
-    // Se for "." ou ".." puro - PRECISA converter para caminho absoluto
-    if (strcmp(path, ".") == 0) {{
-        // "." é o diretório atual
-        snprintf(new_path, sizeof(new_path), "%s%s", CHROOT_PATH, cwd);
-        return new_path;
-    }}
-    
-    if (strcmp(path, "..") == 0) {{
-        // ".." é o diretório pai
-        char parent[2048];
-        strncpy(parent, cwd, sizeof(parent));
-        
-        // Encontra último '/'
-        char *last_slash = strrchr(parent, '/');
-        if (last_slash != NULL) {{
-            if (last_slash == parent) {{
-                // Está na raiz, pai é a própria raiz
-                last_slash[1] = '\\0';
-            }} else {{
-                *last_slash = '\\0';
-            }}
-        }}
-        
-        snprintf(new_path, sizeof(new_path), "%s%s", CHROOT_PATH, parent);
-        return new_path;
-    }}
-    
-    // Para caminhos que começam com "./" ou "../"
-    if (strncmp(path, "./", 2) == 0) {{
-        // Remove o "./" do início
-        snprintf(new_path, sizeof(new_path), "%s%s/%s", 
-                 CHROOT_PATH, cwd, path + 2);
-        return new_path;
-    }}
-    
-    if (strncmp(path, "../", 3) == 0) {{
-        // Calcula diretório pai
-        char parent[2048];
-        strncpy(parent, cwd, sizeof(parent));
-        
-        char *last_slash = strrchr(parent, '/');
-        if (last_slash != NULL) {{
-            if (last_slash == parent) {{
-                last_slash[1] = '\\0';
-            }} else {{
-                *last_slash = '\\0';
-            }}
-        }}
-        
-        snprintf(new_path, sizeof(new_path), "%s%s/%s", 
-                 CHROOT_PATH, parent, path + 3);
-        return new_path;
-    }}
-    
-    // Para caminho absoluto
+    // Se for caminho absoluto
     if (path[0] == '/') {{
         snprintf(new_path, sizeof(new_path), "%s%s", CHROOT_PATH, path);
         return new_path;
     }}
     
-    // Para caminho relativo normal
-    snprintf(new_path, sizeof(new_path), "%s%s/%s", CHROOT_PATH, cwd, path);
+    
+    // Primeiro, vamos pegar o cwd REAL (já dentro do chroot)
+    char cwd[2048];
+    if (getcwd(cwd, sizeof(cwd)) == NULL) {{
+        // Fallback: assume raiz do chroot
+        snprintf(new_path, sizeof(new_path), "%s/%s", CHROOT_PATH, path);
+        return new_path;
+    }}
+    
+    // BLOQUEIA tentativas de escape via ".."
+    // Se tentar subir além da raiz do sandbox, fica na raiz
+    if (!path || !strcmp(path, "..") || strstr(path, "../") || strstr(path, "/../") || (strlen(path) >= 2 && !strcmp(path + strlen(path) - 2, "/..")) || (!strncmp(path, "..", 2) && (!path[2] || path[2] == '/'))) {{
+        // Verifica se já está na raiz do sandbox
+        if (strcmp(cwd, CHROOT_PATH) == 0) {{
+            // Já está na raiz, ".." permanece na raiz
+            snprintf(new_path, sizeof(new_path), "%s/", CHROOT_PATH);
+            return new_path;
+        }} else {{
+            // NÃO está na raiz - permite navegar para o diretório pai
+            // dentro do sandbox
+        
+            // Encontra o último '/' no caminho atual
+            char *last_slash = strrchr(cwd, '/');
+        
+            if (last_slash != NULL && last_slash > cwd) {{
+                // Remove o último componente do caminho
+                size_t parent_len = last_slash - cwd;
+                strncpy(new_path, cwd, parent_len);
+                new_path[parent_len] = '\\0';
+    }} else {{
+        // Já está no nível mais alto possível antes da raiz?
+        // Por segurança, vai para a raiz do sandbox
+        snprintf(new_path, sizeof(new_path), "%s", CHROOT_PATH);
+        }}
+        return new_path;
+    }}
+}}
+    
+    // cwd já está dentro do CHROOT_PATH, então usamos diretamente
+    // Construímos: cwd + "/" + path
+    // O Linux resolverá os "." e ".." automaticamente
+    
+    snprintf(new_path, sizeof(new_path), "%s/%s", cwd, path);
     return new_path;
 }}
 
@@ -3525,19 +3506,10 @@ Retorna o caminho completo se encontrar.
         for f in self.fs.listdir("/"):
             self.fs.remove(f"/{f}")
         # recria lib e bin
-        self.fs.mkdir("/bin")
-        self.fs.mkdir('/lib')
-        self._install_python()
+        self.fs._setup_fs()
         
         self.ready = False
         time.sleep(1)
-
-
-
-
-
-
-
 
 
 
