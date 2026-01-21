@@ -741,7 +741,7 @@ class VirtualEnviron:
                 atual = self._env.environ.get("LD_PRELOAD")
                 self._env.environ.set("LD_PRELOAD", atual + ":" + lib_path)
             else:
-                self._env.environ.set("LD_LIBRARY_PATH", lib_path)
+                self._env.environ.set("LD_PRELOAD", lib_path)
         def create_sandbox_preload(self, pid, chroot):
             source_code = f'''
 #define _GNU_SOURCE
