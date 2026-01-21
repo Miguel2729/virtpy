@@ -779,22 +779,75 @@ static char* redirect_path(const char *path) {{
     if (path == NULL) return NULL;
     
     static char new_path[4096];
-    char full_path[4096];
+    char cwd[2048];
     
-    if (path[0] == '/') {{
-        // Caminho absoluto
-        snprintf(full_path, sizeof(full_path), "%s", path);
-    }} else {{
-        // Caminho relativo - converte para absoluto
-        char cwd[2048];
-        if (getcwd(cwd, sizeof(cwd)) == NULL) {{
-            return (char*)path; // Fallback
-        }}
-        snprintf(full_path, sizeof(full_path), "%s/%s", cwd, path);
+    // Obtém diretório atual REAL (fora do chroot)
+    if (getcwd(cwd, sizeof(cwd)) == NULL) {{
+        return (char*)path;
     }}
     
-    // Redireciona para dentro do chroot
-    snprintf(new_path, sizeof(new_path), "%s%s", CHROOT_PATH, full_path);
+    // Se for "." ou ".." puro - PRECISA converter para caminho absoluto
+    if (strcmp(path, ".") == 0) {{
+        // "." é o diretório atual
+        snprintf(new_path, sizeof(new_path), "%s%s", CHROOT_PATH, cwd);
+        return new_path;
+    }}
+    
+    if (strcmp(path, "..") == 0) {{
+        // ".." é o diretório pai
+        char parent[2048];
+        strncpy(parent, cwd, sizeof(parent));
+        
+        // Encontra último '/'
+        char *last_slash = strrchr(parent, '/');
+        if (last_slash != NULL) {{
+            if (last_slash == parent) {{
+                // Está na raiz, pai é a própria raiz
+                last_slash[1] = '\\0';
+            }} else {{
+                *last_slash = '\\0';
+            }}
+        }}
+        
+        snprintf(new_path, sizeof(new_path), "%s%s", CHROOT_PATH, parent);
+        return new_path;
+    }}
+    
+    // Para caminhos que começam com "./" ou "../"
+    if (strncmp(path, "./", 2) == 0) {{
+        // Remove o "./" do início
+        snprintf(new_path, sizeof(new_path), "%s%s/%s", 
+                 CHROOT_PATH, cwd, path + 2);
+        return new_path;
+    }}
+    
+    if (strncmp(path, "../", 3) == 0) {{
+        // Calcula diretório pai
+        char parent[2048];
+        strncpy(parent, cwd, sizeof(parent));
+        
+        char *last_slash = strrchr(parent, '/');
+        if (last_slash != NULL) {{
+            if (last_slash == parent) {{
+                last_slash[1] = '\\0';
+            }} else {{
+                *last_slash = '\\0';
+            }}
+        }}
+        
+        snprintf(new_path, sizeof(new_path), "%s%s/%s", 
+                 CHROOT_PATH, parent, path + 3);
+        return new_path;
+    }}
+    
+    // Para caminho absoluto
+    if (path[0] == '/') {{
+        snprintf(new_path, sizeof(new_path), "%s%s", CHROOT_PATH, path);
+        return new_path;
+    }}
+    
+    // Para caminho relativo normal
+    snprintf(new_path, sizeof(new_path), "%s%s/%s", CHROOT_PATH, cwd, path);
     return new_path;
 }}
 
@@ -3038,6 +3091,7 @@ Retorna o caminho completo se encontrar.
             
             # Register cleanup
             atexit.register(self.shutdown)
+            
     
     def shutdown(self, root_backup=True):
         """Shutdown the virtual environment"""
