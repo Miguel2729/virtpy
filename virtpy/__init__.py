@@ -1,5 +1,5 @@
 """
-Core implementation of VirtPy - Complete Virtual Environments, v2.8.2
+Core implementation of VirtPy - Complete Virtual Environments, v2.8.3
 """
 """
 ## Why No Windows Support (And Never Will Be)
@@ -736,7 +736,7 @@ class VirtualEnviron:
         def __init__(self, env):
             self._env = env
         def set_libsandbox(self):
-            lib_path = os.path.join(self._env._base_path, "lib", "libsandbox.so")
+            lib_path = os.path.join("lib", "libsandbox.so")
             if "LD_PRELOAD" in self._env.environ.to_dict():
                 atual = self._env.environ.get("LD_PRELOAD")
                 self._env.environ.set("LD_PRELOAD", atual + ":" + lib_path)
